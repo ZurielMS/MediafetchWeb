@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test-suite.js"
+    "test": "node test-suite.js",
+    "postinstall": "python3 -m pip install --upgrade --break-system-packages yt-dlp || python -m pip install --upgrade yt-dlp || true"
   },
   "keywords": [
     "mediafetch",

@@ -19,10 +19,25 @@ if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 if (!fs.existsSync(METADATA_FILE)) fs.writeFileSync(METADATA_FILE, JSON.stringify([]), 'utf8');
 
+// Detect Python command (python3 on Linux/Render, python on Windows)
+let pythonCmd = 'python';
+try {
+  execSync('python --version', { stdio: 'ignore' });
+  pythonCmd = 'python';
+} catch (_) {
+  try {
+    execSync('python3 --version', { stdio: 'ignore' });
+    pythonCmd = 'python3';
+  } catch (__) {
+    pythonCmd = 'python';
+  }
+}
+console.log(`[MediaFetch] Python detectado: ${pythonCmd}`);
+
 // Detect FFMPEG path from imageio_ffmpeg or system PATH
 let ffmpegPath = '';
 try {
-  const detectCmd = 'python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"';
+  const detectCmd = `${pythonCmd} -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"`;
   ffmpegPath = execSync(detectCmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
   console.log(`[MediaFetch] FFMPEG detectado en: ${ffmpegPath}`);
 } catch (e) {
@@ -196,7 +211,7 @@ function detectPlatform(url) {
 app.get('/api/status', (req, res) => {
   let ytdlpVersion = 'Desconocida';
   try {
-    ytdlpVersion = execSync('python -m yt_dlp --version', { encoding: 'utf8' }).trim();
+    ytdlpVersion = execSync(`${pythonCmd} -m yt_dlp --version`, { encoding: 'utf8' }).trim();
   } catch (err) {
     ytdlpVersion = 'No instalado';
   }
@@ -237,7 +252,7 @@ app.post('/api/analyze', (req, res) => {
 
   args.push(cleanUrl);
 
-  const py = spawn('python', args, { windowsHide: true });
+  const py = spawn(pythonCmd, args, { windowsHide: true });
   let stdoutData = '';
   let stderrData = '';
 
@@ -445,7 +460,7 @@ app.post('/api/download', (req, res) => {
   activeTasks.set(taskId, taskData);
 
   // Spawn download process
-  const child = spawn('python', args, { windowsHide: true });
+  const child = spawn(pythonCmd, args, { windowsHide: true });
   taskData.process = child;
 
   let lastLine = '';
@@ -894,16 +909,24 @@ app.get('/api/proxy', (req, res) => {
   }
 });
 
-// 12. Update yt-dlp
+// 12. Update yt-dlp (Compatible with Render / Linux PEP 668 & Windows)
 app.post('/api/engine/update', (req, res) => {
-  exec('python -m pip install --upgrade yt-dlp', (err, stdout, stderr) => {
-    if (err) {
-      return res.status(500).json({ error: `Error al actualizar yt-dlp: ${stderr || err.message}` });
-    }
+  // Use --break-system-packages for Debian/Bookworm PEP 668, followed by yt-dlp self-updater and standard pip
+  const updateCmd = `${pythonCmd} -m pip install --upgrade --break-system-packages yt-dlp || ${pythonCmd} -m yt_dlp -U || ${pythonCmd} -m pip install --upgrade yt-dlp`;
+
+  exec(updateCmd, (err, stdout, stderr) => {
     let newVersion = 'Actualizado';
     try {
-      newVersion = execSync('python -m yt_dlp --version', { encoding: 'utf8' }).trim();
+      newVersion = execSync(`${pythonCmd} -m yt_dlp --version`, { encoding: 'utf8' }).trim();
     } catch (_) {}
+
+    const fullOutput = `${stdout || ''} ${stderr || ''}`;
+    const isSuccess = !err || fullOutput.includes('already satisfied') || fullOutput.includes('up to date') || fullOutput.includes('Successfully installed');
+
+    if (!isSuccess && err) {
+      logDebug('error', 'Error al actualizar yt-dlp:', { err: err.message, stderr, stdout });
+      return res.status(500).json({ error: `Error al actualizar yt-dlp: ${stderr || err.message}` });
+    }
 
     res.json({
       success: true,
