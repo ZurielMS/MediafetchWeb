@@ -240,7 +240,15 @@ app.post('/api/analyze', (req, res) => {
   }
 
   const cleanUrl = url.trim();
-  const args = ['-m', 'yt_dlp', '--dump-single-json', '--no-playlist', '--no-warnings'];
+  const args = [
+    '-m', 'yt_dlp',
+    '--dump-single-json',
+    '--no-playlist',
+    '--no-warnings',
+    '--extractor-args', 'youtube:player_client=android,web,mweb,ios',
+    '--js-runtimes', 'node',
+    '--remote-components', 'ejs:github',
+  ];
 
   if (ffmpegPath && ffmpegPath !== 'ffmpeg') {
     args.push('--ffmpeg-location', ffmpegPath);
@@ -266,7 +274,13 @@ app.post('/api/analyze', (req, res) => {
 
   py.on('close', code => {
     if (code !== 0 || !stdoutData.trim()) {
-      const errMsg = stderrData.trim().split('\n').pop() || 'No se pudo obtener la información del medio.';
+      const lines = stderrData.trim().split('\n').map(l => l.trim()).filter(Boolean);
+      let errMsg = lines.find(l => l.startsWith('ERROR:')) || lines[lines.length - 1] || 'No se pudo obtener la información del medio.';
+      
+      if (errMsg.includes('Failed to extract any player response') || errMsg.includes('Sign in to confirm')) {
+        errMsg = 'YouTube bloqueó la extracción en la nube. Configura tus cookies en la pestaña Ajustes para descargar sin restricciones.';
+      }
+
       logDebug('error', `yt-dlp analyze falló para URL: ${cleanUrl} (código ${code})`, {
         stderr: stderrData.trim(),
         errMsg
@@ -390,6 +404,9 @@ app.post('/api/download', (req, res) => {
     '--windows-filenames',
     '--newline',
     '--no-warnings',
+    '--extractor-args', 'youtube:player_client=android,web,mweb,ios',
+    '--js-runtimes', 'node',
+    '--remote-components', 'ejs:github',
     '-o', outputTemplate,
   ];
 
