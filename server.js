@@ -29,25 +29,112 @@ if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 if (!fs.existsSync(METADATA_FILE)) fs.writeFileSync(METADATA_FILE, JSON.stringify([]), 'utf8');
 
+// Ensure ~/.local/bin and ./bin are included in PATH for cloud environments (Render, etc.)
+const extraPaths = [
+  path.join(ROOT_DIR, 'bin'),
+  path.join(process.env.HOME || '', '.local', 'bin'),
+  '/usr/local/bin',
+  '/usr/bin'
+].filter(p => p && fs.existsSync(p));
+
+if (extraPaths.length > 0) {
+  process.env.PATH = `${extraPaths.join(path.delimiter)}${path.delimiter}${process.env.PATH || ''}`;
+}
+
 // Detect Python command (python3 on Linux/Render, python on Windows)
 let pythonCmd = 'python';
-try {
-  execSync('python --version', { stdio: 'ignore' });
-  pythonCmd = 'python';
-} catch (_) {
+if (process.platform === 'win32') {
+  try {
+    execSync('python --version', { stdio: 'ignore' });
+    pythonCmd = 'python';
+  } catch (_) {
+    try {
+      execSync('py --version', { stdio: 'ignore' });
+      pythonCmd = 'py';
+    } catch (__) {
+      pythonCmd = 'python';
+    }
+  }
+} else {
   try {
     execSync('python3 --version', { stdio: 'ignore' });
     pythonCmd = 'python3';
-  } catch (__) {
-    pythonCmd = 'python';
+  } catch (_) {
+    try {
+      execSync('python --version', { stdio: 'ignore' });
+      pythonCmd = 'python';
+    } catch (__) {
+      pythonCmd = 'python3';
+    }
   }
 }
 console.log(`[MediaFetch] Python detectado: ${pythonCmd}`);
 
+// Helper: detect available yt-dlp binary or python module
+const { execFileSync } = require('child_process');
+
+function detectYtdlpRunner() {
+  const options = [
+    { cmd: 'yt-dlp', prefixArgs: [], desc: 'yt-dlp CLI' },
+    { cmd: path.join(ROOT_DIR, 'bin', 'yt-dlp'), prefixArgs: [], desc: 'local bin/yt-dlp' },
+    { cmd: path.join(process.env.HOME || '', '.local', 'bin', 'yt-dlp'), prefixArgs: [], desc: 'user .local/bin/yt-dlp' },
+    { cmd: pythonCmd, prefixArgs: ['-m', 'yt_dlp'], desc: `${pythonCmd} module` },
+    { cmd: 'python3', prefixArgs: ['-m', 'yt_dlp'], desc: 'python3 module' },
+    { cmd: 'python', prefixArgs: ['-m', 'yt_dlp'], desc: 'python module' },
+  ];
+
+  for (const opt of options) {
+    try {
+      const ver = execFileSync(opt.cmd, [...opt.prefixArgs, '--version'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      }).trim();
+      if (ver && /^\d{4}\./.test(ver)) {
+        return { cmd: opt.cmd, prefixArgs: opt.prefixArgs, version: ver, desc: opt.desc };
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+let ytdlpRunner = detectYtdlpRunner();
+
+// Self-healing: if yt-dlp is not available, install it automatically
+if (!ytdlpRunner) {
+  console.log('[MediaFetch] yt-dlp no detectado. Intentando instalación automática...');
+  try {
+    execSync(`${pythonCmd} -m pip install --upgrade --break-system-packages yt-dlp || pip3 install --upgrade --break-system-packages yt-dlp || true`, { stdio: 'ignore' });
+    ytdlpRunner = detectYtdlpRunner();
+  } catch (err) {
+    console.error('[MediaFetch] Error en auto-instalación pip:', err.message);
+  }
+
+  // If still not detected on Linux, download the official standalone executable
+  if (!ytdlpRunner && process.platform !== 'win32') {
+    try {
+      console.log('[MediaFetch] Descargando binario oficial independiente de yt-dlp...');
+      const binDir = path.join(ROOT_DIR, 'bin');
+      if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true });
+      const targetBin = path.join(binDir, 'yt-dlp');
+      execSync(`curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "${targetBin}" && chmod +x "${targetBin}"`, { stdio: 'ignore' });
+      ytdlpRunner = detectYtdlpRunner();
+    } catch (curlErr) {
+      console.error('[MediaFetch] Error al descargar binario independiente:', curlErr.message);
+    }
+  }
+}
+
+if (ytdlpRunner) {
+  console.log(`[MediaFetch] yt-dlp listo (${ytdlpRunner.version}) vía: ${ytdlpRunner.desc}`);
+} else {
+  ytdlpRunner = { cmd: pythonCmd, prefixArgs: ['-m', 'yt_dlp'], version: 'No instalado', desc: 'fallback' };
+  console.warn('[MediaFetch] Advertencia: yt-dlp no se pudo inicializar.');
+}
+
 // Detect FFMPEG path from imageio_ffmpeg or system PATH (Encoding-safe for Windows & Linux)
 let ffmpegPath = '';
 try {
-  const { execFileSync } = require('child_process');
   const rawBytes = execFileSync(pythonCmd, ['-c', 'import imageio_ffmpeg, sys; sys.stdout.buffer.write(imageio_ffmpeg.get_ffmpeg_exe().encode("utf-8"))']);
   const detected = rawBytes.toString('utf8').trim();
   if (detected && fs.existsSync(detected)) {
@@ -228,9 +315,20 @@ function detectPlatform(url) {
 app.get('/api/status', (req, res) => {
   let ytdlpVersion = 'Desconocida';
   try {
-    ytdlpVersion = execSync(`${pythonCmd} -m yt_dlp --version`, { encoding: 'utf8' }).trim();
+    const ver = execFileSync(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, '--version'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+    }).trim();
+    if (ver) ytdlpVersion = ver;
   } catch (err) {
-    ytdlpVersion = 'No instalado';
+    const recheck = detectYtdlpRunner();
+    if (recheck) {
+      ytdlpRunner = recheck;
+      ytdlpVersion = recheck.version;
+    } else {
+      ytdlpVersion = 'No instalado';
+    }
   }
 
   const library = readLibrary();
@@ -258,7 +356,6 @@ app.post('/api/analyze', (req, res) => {
 
   const cleanUrl = url.trim();
   const args = [
-    '-m', 'yt_dlp',
     '--dump-single-json',
     '--no-playlist',
     '--no-warnings',
@@ -278,7 +375,7 @@ app.post('/api/analyze', (req, res) => {
 
   args.push(cleanUrl);
 
-  const py = spawn(pythonCmd, args, { windowsHide: true });
+  const py = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], { windowsHide: true });
   let stdoutData = '';
   let stderrData = '';
 
@@ -416,7 +513,6 @@ app.post('/api/download', (req, res) => {
   const outputTemplate = path.join(DOWNLOADS_DIR, `%(title).110B.%(ext)s`);
 
   const args = [
-    '-m', 'yt_dlp',
     '--no-playlist',
     '--no-mtime',
     '--windows-filenames',
@@ -496,7 +592,7 @@ app.post('/api/download', (req, res) => {
   activeTasks.set(taskId, taskData);
 
   // Spawn download process
-  const child = spawn(pythonCmd, args, { windowsHide: true });
+  const child = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], { windowsHide: true });
   taskData.process = child;
 
   let lastLine = '';
@@ -948,16 +1044,18 @@ app.get('/api/proxy', (req, res) => {
 // 12. Update yt-dlp (Compatible with Render / Linux PEP 668 & Windows)
 app.post('/api/engine/update', (req, res) => {
   // Use --break-system-packages for Debian/Bookworm PEP 668, followed by yt-dlp self-updater and standard pip
-  const updateCmd = `${pythonCmd} -m pip install --upgrade --break-system-packages yt-dlp || ${pythonCmd} -m yt_dlp -U || ${pythonCmd} -m pip install --upgrade yt-dlp`;
+  const updateCmd = `${pythonCmd} -m pip install --upgrade --break-system-packages yt-dlp || python3 -m pip install --upgrade --break-system-packages yt-dlp || pip3 install --upgrade --break-system-packages yt-dlp || yt-dlp -U || true`;
 
   exec(updateCmd, (err, stdout, stderr) => {
     let newVersion = 'Actualizado';
-    try {
-      newVersion = execSync(`${pythonCmd} -m yt_dlp --version`, { encoding: 'utf8' }).trim();
-    } catch (_) {}
+    const recheck = detectYtdlpRunner();
+    if (recheck) {
+      ytdlpRunner = recheck;
+      newVersion = recheck.version;
+    }
 
     const fullOutput = `${stdout || ''} ${stderr || ''}`;
-    const isSuccess = !err || fullOutput.includes('already satisfied') || fullOutput.includes('up to date') || fullOutput.includes('Successfully installed');
+    const isSuccess = !err || fullOutput.includes('already satisfied') || fullOutput.includes('up to date') || fullOutput.includes('Successfully installed') || newVersion !== 'Actualizado';
 
     if (!isSuccess && err) {
       logDebug('error', 'Error al actualizar yt-dlp:', { err: err.message, stderr, stdout });
