@@ -354,7 +354,10 @@ app.post('/api/analyze', (req, res) => {
     return res.status(400).json({ error: 'Debes proporcionar una URL válida.' });
   }
 
-  const cleanUrl = url.trim();
+  let cleanUrl = url.trim();
+  if (cleanUrl.includes('music.youtube.com/watch')) {
+    cleanUrl = cleanUrl.replace('music.youtube.com', 'www.youtube.com');
+  }
   const args = [
     '--dump-single-json',
     '--no-playlist',
@@ -458,7 +461,10 @@ app.post('/api/download', (req, res) => {
     return res.status(400).json({ error: 'La URL es obligatoria.' });
   }
 
-  const cleanUrl = url.trim();
+  let cleanUrl = url.trim();
+  if (cleanUrl.includes('music.youtube.com/watch')) {
+    cleanUrl = cleanUrl.replace('music.youtube.com', 'www.youtube.com');
+  }
   const isVideo = format !== 'mp3';
   const platform = detectPlatform(referer || cleanUrl);
 
