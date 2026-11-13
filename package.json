@@ -1,0 +1,26 @@
+{
+  "name": "mediafetch-web",
+  "version": "1.0.0",
+  "description": "MediaFetch Web - Descargador responsivo de Video MP4 y Música MP3",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node test-suite.js"
+  },
+  "keywords": [
+    "mediafetch",
+    "downloader",
+    "mp4",
+    "mp3",
+    "yt-dlp",
+    "ffmpeg",
+    "responsive-web"
+  ],
+  "author": "Zuriel Montaño",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}

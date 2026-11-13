@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>MediaFetch Web — Descargador MP4 y MP3</title>
+  <meta name="description" content="Descargador de video (MP4) y música (MP3) responsivo y potente impulsado por yt-dlp y FFmpeg">
+  <meta name="theme-color" content="#0B0F19">
+  <!-- Early theme initializer to prevent FOUC / flicker -->
+  <script>
+    (function () {
+      try {
+        const saved = localStorage.getItem('mf_theme') || 'dark';
+        let eff = saved;
+        if (saved === 'system') {
+          eff = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', eff);
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <!-- App Container -->
+  <div class="app-layout">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
+            <path d="M12 12v9"></path>
+            <path d="m8 17 4 4 4-4"></path>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1 class="brand-title">MediaFetch <span>Web</span></h1>
+          <p class="brand-subtitle">Descargador de Video & Audio HD</p>
+        </div>
+      </div>
+
+      <!-- Desktop Nav Tabs -->
+      <nav class="desktop-nav">
+        <button class="nav-btn active" data-tab="downloader">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Descargar</span>
+          <span class="badge" id="activeTasksBadge" style="display: none;">0</span>
+        </button>
+
+        <button class="nav-btn" data-tab="browser">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
+          <span>Navegador</span>
+          <span class="session-indicator-dot" id="headerCookieDot" title="Cookies de sesión activas" style="display: none;"></span>
+        </button>
+
+        <button class="nav-btn" data-tab="library">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+          </svg>
+          <span>Biblioteca</span>
+          <span class="badge" id="libraryCountBadge">0</span>
+        </button>
+
+        <button class="nav-btn" data-tab="settings">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+          <span>Ajustes</span>
+        </button>
+      </nav>
+
+      <!-- Header Right Actions -->
+      <div class="header-actions">
+        <!-- Theme Toggle Button -->
+        <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="Cambiar tema (Claro / Oscuro)" title="Cambiar tema">
+          <svg class="theme-icon sun-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <svg class="theme-icon moon-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+
+        <!-- Engine Status Pill -->
+        <div class="engine-pill" id="engineStatusPill" title="Estado de yt-dlp y FFmpeg">
+          <span class="status-dot online"></span>
+          <span class="engine-version" id="engineVersionText">yt-dlp listo</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      <!-- 1. TAB: DESCARGAR -->
+      <section class="tab-view active" id="view-downloader">
+        <div class="view-content-grid">
+          <!-- Left Column: Input & Preview -->
+          <div class="main-column">
+            <!-- URL Input Card -->
+            <div class="card glass-card">
+              <div class="card-header-clean">
+                <span class="card-subtitle">DESCARGADOR UNIVERSAL</span>
+                <h2 class="card-title">Pega el enlace de video o música</h2>
+              </div>
+
+              <div class="url-input-container">
+                <div class="url-icon">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                  </svg>
+                </div>
+                <input type="url" id="urlInput" class="main-input" placeholder="https://www.youtube.com/watch?v=... o cualquier enlace" autocomplete="off" spellcheck="false">
+                <button type="button" class="icon-btn" id="clearUrlBtn" title="Limpiar" style="display: none;">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+                <button type="button" class="btn-paste" id="pasteBtn" title="Pegar portapapeles">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="8" height="4" x="8" y="2" rx="1" ry="1"></rect>
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                  </svg>
+                  <span>Pegar</span>
+                </button>
+              </div>
+
+              <!-- Quick action bar -->
+              <div class="input-actions-bar">
+                <div class="detected-platform-badge" id="platformBadge" style="display: none;">
+                  <span class="platform-dot" id="platformDot"></span>
+                  <span class="platform-name" id="platformName"></span>
+                </div>
+                <button type="button" class="btn-analyze" id="analyzeBtn">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <span>Analizar enlace</span>
+                </button>
+              </div>
+
+              <!-- Supported platforms icons banner -->
+              <div class="platforms-ribbon">
+                <span class="ribbon-label">Compatible con:</span>
+                <span class="pill-platform">YouTube</span>
+                <span class="pill-platform">YT Music</span>
+                <span class="pill-platform">TikTok</span>
+                <span class="pill-platform">Instagram</span>
+                <span class="pill-platform">Facebook</span>
+                <span class="pill-platform">X (Twitter)</span>
+                <span class="pill-platform">SoundCloud</span>
+                <span class="pill-platform">Vimeo</span>
+                <span class="pill-platform">Streams directos</span>
+              </div>
+            </div>
+
+            <!-- Analysis Loading Indicator -->
+            <div class="card loading-card" id="analyzeLoading" style="display: none;">
+              <div class="spinner"></div>
+              <p>Analizando enlace y extrayendo calidades...</p>
+            </div>
+
+            <!-- Analysis Error Card -->
+            <div class="card error-card" id="analyzeErrorCard" style="display: none;">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <div class="error-text-content">
+                <strong>Error al obtener el medio</strong>
+                <p id="analyzeErrorMsg">Verifica que el enlace sea correcto y accesible.</p>
+              </div>
+            </div>
+
+            <!-- Media Preview & Download Form Card -->
+            <div class="card preview-card" id="mediaPreviewCard" style="display: none;">
+              <div class="preview-layout">
+                <div class="preview-thumb-wrap">
+                  <img id="previewThumbnail" class="preview-thumb" src="" alt="Miniatura">
+                  <span class="preview-duration" id="previewDuration">00:00</span>
+                </div>
+                <div class="preview-details">
+                  <span class="badge-source" id="previewExtractor">YouTube</span>
+                  <h3 class="preview-title" id="previewTitle">Título del video</h3>
+                  <p class="preview-author" id="previewAuthor">Canal / Autor</p>
+                </div>
+              </div>
+
+              <!-- Format & Quality Options -->
+              <div class="download-options-block">
+                <!-- Format Choice -->
+                <div class="option-section">
+                  <label class="option-label">1. Formato de descarga</label>
+                  <div class="format-chips">
+                    <button type="button" class="format-chip active" data-format="mp4">
+                      <div class="chip-icon-wrap">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                          <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                          <rect width="15" height="14" x="1" y="5" rx="2" ry="2"></rect>
+                        </svg>
+                      </div>
+                      <div class="chip-text">
+                        <span class="chip-badge-tag mp4">VIDEO HD</span>
+                        <strong>MP4</strong>
+                        <small>Video con Audio en alta calidad</small>
+                      </div>
+                      <div class="chip-check-indicator">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </div>
+                    </button>
+
+                    <button type="button" class="format-chip" data-format="mp3">
+                      <div class="chip-icon-wrap">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M9 18V5l12-2v13"></path>
+                          <circle cx="6" cy="18" r="3"></circle>
+                          <circle cx="18" cy="16" r="3"></circle>
+                        </svg>
+                      </div>
+                      <div class="chip-text">
+                        <span class="chip-badge-tag mp3">AUDIO</span>
+                        <strong>MP3</strong>
+                        <small>Solo Música extraída con FFmpeg</small>
+                      </div>
+                      <div class="chip-check-indicator">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Video Quality Picker -->
+                <div class="option-section" id="videoQualitySection">
+                  <label class="option-label">2. Calidad de video</label>
+                  <div class="quality-chips-grid">
+                    <button type="button" class="quality-chip active" data-quality="best">Mejor disponible</button>
+                    <button type="button" class="quality-chip" data-quality="1080">1080p Full HD</button>
+                    <button type="button" class="quality-chip" data-quality="720">720p HD</button>
+                    <button type="button" class="quality-chip" data-quality="480">480p</button>
+                    <button type="button" class="quality-chip" data-quality="360">360p</button>
+                  </div>
+                </div>
+
+                <!-- Audio Quality Picker -->
+                <div class="option-section" id="audioQualitySection" style="display: none;">
+                  <label class="option-label">2. Bitrate de audio MP3</label>
+                  <div class="quality-chips-grid">
+                    <button type="button" class="quality-chip active" data-quality="320">320 kbps (Alta fidelidad)</button>
+                    <button type="button" class="quality-chip" data-quality="192">192 kbps (Estándar)</button>
+                    <button type="button" class="quality-chip" data-quality="128">128 kbps (Ligero)</button>
+                  </div>
+                </div>
+
+                <!-- Custom Title -->
+                <div class="option-section">
+                  <label class="option-label" for="customTitleInput">3. Nombre personalizado (Opcional)</label>
+                  <input type="text" id="customTitleInput" class="sub-input" placeholder="Nombre para el archivo descargado...">
+                </div>
+
+                <!-- Start Download CTA -->
+                <button type="button" class="btn-start-download" id="startDownloadBtn">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span id="startDownloadText">Descargar MP4</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Active Downloads Queue -->
+          <div class="side-column">
+            <div class="card glass-card">
+              <div class="card-header-between">
+                <div>
+                  <h3 class="card-title">Descargas activas</h3>
+                  <span class="card-subtitle">PROGRESO EN TIEMPO REAL</span>
+                </div>
+                <span class="count-pill" id="activeTasksCount">0 activas</span>
+              </div>
+
+              <div class="active-tasks-list" id="activeTasksList">
+                <div class="empty-queue" id="emptyQueueMsg">
+                  <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <p>No hay descargas en progreso</p>
+                  <small>Pega un enlace y presiona "Descargar" para ver el progreso en vivo.</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. TAB: NAVEGADOR & SNIFFER -->
+      <section class="tab-view" id="view-browser">
+        <div class="browser-layout">
+          <!-- Browser Toolbar -->
+          <div class="browser-toolbar">
+            <div class="browser-nav-group">
+              <button type="button" class="browser-tool-btn" id="browserBackBtn" title="Atrás" disabled>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+              </button>
+              <button type="button" class="browser-tool-btn" id="browserReloadBtn" title="Recargar">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+              </button>
+            </div>
+
+            <div class="browser-address-box">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+              <input type="text" id="browserAddressInput" class="browser-address-input" placeholder="Escribe una URL (ej. youtube.com) o busca en Google" spellcheck="false">
+              <button type="button" class="browser-go-btn" id="browserGoBtn">Ir</button>
+            </div>
+
+            <!-- Sniffer Status Pill -->
+            <div class="browser-session-pill" id="browserSessionStatus">
+              <span class="session-dot" id="browserSessionDot"></span>
+              <span id="browserSessionLabel">Sin cookies</span>
+            </div>
+          </div>
+
+          <!-- Bookmarks Grid -->
+          <div class="browser-bookmarks-bar" id="bookmarksBar">
+            <span class="bm-label">Acceso rápido:</span>
+            <div class="bookmarks-scroll">
+              <button type="button" class="bm-pill" data-url="https://m.youtube.com">
+                <span class="bm-icon yt">▶</span> YouTube
+              </button>
+              <button type="button" class="bm-pill" data-url="https://music.youtube.com">
+                <span class="bm-icon ytm">♫</span> YT Music
+              </button>
+              <button type="button" class="bm-pill" data-url="https://www.tiktok.com">
+                <span class="bm-icon tt">♩</span> TikTok
+              </button>
+              <button type="button" class="bm-pill" data-url="https://www.instagram.com">
+                <span class="bm-icon ig">📷</span> Instagram
+              </button>
+              <button type="button" class="bm-pill" data-url="https://m.facebook.com">
+                <span class="bm-icon fb">f</span> Facebook
+              </button>
+              <button type="button" class="bm-pill" data-url="https://x.com">
+                <span class="bm-icon x">𝕏</span> X (Twitter)
+              </button>
+              <button type="button" class="bm-pill" data-url="https://soundcloud.com">
+                <span class="bm-icon sc">☁</span> SoundCloud
+              </button>
+            </div>
+          </div>
+
+          <!-- Browser Frame / Content Container -->
+          <div class="browser-content-area">
+            <div class="browser-home-splash" id="browserHomeSplash">
+              <div class="splash-inner">
+                <div class="splash-icon">
+                  <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                  </svg>
+                </div>
+                <h3>Explorador y Captura de Medios</h3>
+                <p>Navega a cualquier página web. Cuando encuentres el video o audio que deseas descargar, pulsa <strong>"Descargar esta página"</strong> o copia el enlace.</p>
+                <div class="splash-quick-buttons">
+                  <button type="button" class="splash-btn" onclick="window.browserModule.navigate('https://m.youtube.com')">Abrir YouTube</button>
+                  <button type="button" class="splash-btn" onclick="window.browserModule.navigate('https://music.youtube.com')">Abrir YouTube Music</button>
+                  <button type="button" class="splash-btn" onclick="window.browserModule.navigate('https://www.tiktok.com')">Abrir TikTok</button>
+                </div>
+              </div>
+            </div>
+
+            <iframe id="browserIframe" class="browser-iframe" style="display: none;" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+          </div>
+
+          <!-- Floating Download Action -->
+          <div class="browser-floating-action" id="browserFloatingBar" style="display: none;">
+            <button type="button" class="btn-send-to-downloader" id="sendBrowserUrlBtn">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Descargar URL actual en MP4 / MP3</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. TAB: BIBLIOTECA (DOWNLOADS) -->
+      <section class="tab-view" id="view-library">
+        <div class="library-container">
+          <!-- Library Header Bar -->
+          <div class="library-controls-card card glass-card">
+            <div class="library-header-row">
+              <div>
+                <h2 class="card-title">Biblioteca de Medios</h2>
+                <span class="card-subtitle">ARCHIVOS DESCARGADOS LOCALES</span>
+              </div>
+              <div class="storage-summary" id="storageSummary">0 archivos · 0 MB</div>
+            </div>
+
+            <!-- Search & Filters -->
+            <div class="library-filters-row">
+              <div class="library-search-box">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="librarySearchInput" class="library-search-input" placeholder="Buscar por título o formato...">
+              </div>
+
+              <div class="library-filter-chips">
+                <button type="button" class="lib-chip active" data-filter="all">Todos</button>
+                <button type="button" class="lib-chip" data-filter="mp4">Videos (MP4)</button>
+                <button type="button" class="lib-chip" data-filter="mp3">Música (MP3)</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Items Grid -->
+          <div class="library-items-grid" id="libraryItemsGrid">
+            <!-- Rendered dynamically -->
+          </div>
+
+          <!-- Empty Library Notice -->
+          <div class="empty-library-state" id="emptyLibraryNotice" style="display: none;">
+            <div class="empty-lib-icon">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </div>
+            <h3>Tu biblioteca está vacía</h3>
+            <p>Descarga videos o música desde la pestaña "Descargar" para verlos y reproducirlos aquí.</p>
+            <button type="button" class="btn-primary" onclick="window.appModule.switchTab('downloader')">Ir a Descargar</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. TAB: AJUSTES -->
+      <section class="tab-view" id="view-settings">
+        <div class="settings-container">
+          <!-- Engine Status Card -->
+          <div class="card glass-card">
+            <div class="card-header-clean">
+              <span class="card-subtitle">MOTOR Y CONVERSOR</span>
+              <h2 class="card-title">yt-dlp & FFmpeg</h2>
+            </div>
+
+            <div class="settings-info-grid">
+              <div class="info-cell">
+                <span class="info-cell-label">Versión de yt-dlp</span>
+                <span class="info-cell-val" id="settingsYtDlpVer">Cargando...</span>
+              </div>
+              <div class="info-cell">
+                <span class="info-cell-label">Conversor FFmpeg</span>
+                <span class="info-cell-val text-success" id="settingsFfmpegStatus">Activo (MP4 / MP3)</span>
+              </div>
+              <div class="info-cell full-width">
+                <span class="info-cell-label">Ruta binario FFmpeg</span>
+                <code class="info-cell-code" id="settingsFfmpegPath">Detectando...</code>
+              </div>
+            </div>
+
+            <button type="button" class="btn-secondary" id="updateEngineBtn">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                <path d="M16 21h5v-5"></path>
+              </svg>
+              <span>Actualizar extractor yt-dlp</span>
+            </button>
+          </div>
+
+          <!-- Session Cookies Manager Card -->
+          <div class="card glass-card">
+            <div class="card-header-clean">
+              <span class="card-subtitle">AUTENTICACIÓN Y SESIONES</span>
+              <h2 class="card-title">Cookies de sesión (Netscape cookies.txt)</h2>
+            </div>
+            <p class="settings-desc">
+              Si deseas descargar videos privados, cursos o contenido protegido de YouTube, Facebook o Instagram, pega aquí el contenido de tus cookies en formato Netscape (`cookies.txt`). MediaFetch las usará automáticamente.
+            </p>
+
+            <div class="cookies-status-row">
+              <div class="cookies-status-text">
+                <span class="status-dot" id="cookiesActiveDot"></span>
+                <span id="cookiesActiveText">Sin cookies configuradas</span>
+              </div>
+              <button type="button" class="btn-sm-danger" id="clearCookiesBtn" style="display: none;">Eliminar cookies</button>
+            </div>
+
+            <textarea id="cookiesTextInput" class="cookies-textarea" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com  TRUE  /  FALSE  2147483647  SID  ..."></textarea>
+
+            <button type="button" class="btn-primary" id="saveCookiesBtn">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+              </svg>
+              <span>Guardar cookies de sesión</span>
+            </button>
+          </div>
+
+          <!-- Defaults Preferences Card -->
+          <div class="card glass-card">
+            <div class="card-header-clean">
+              <span class="card-subtitle">PREFERENCIAS</span>
+              <h2 class="card-title">Valores por defecto</h2>
+            </div>
+
+            <div class="settings-form-row">
+              <div class="setting-item">
+                <label for="themeModeSelect">Tema visual de la interfaz</label>
+                <select id="themeModeSelect" class="settings-select">
+                  <option value="system">Automático (Según el sistema)</option>
+                  <option value="dark">Modo Oscuro</option>
+                  <option value="light">Modo Claro</option>
+                </select>
+              </div>
+
+              <div class="setting-item">
+                <label for="defaultFormatSelect">Formato inicial preferido</label>
+                <select id="defaultFormatSelect" class="settings-select">
+                  <option value="mp4">MP4 (Video HD con audio)</option>
+                  <option value="mp3">MP3 (Solo audio extraído)</option>
+                </select>
+              </div>
+
+              <div class="setting-item">
+                <label for="defaultVideoQualitySelect">Calidad de video por defecto</label>
+                <select id="defaultVideoQualitySelect" class="settings-select">
+                  <option value="best">Mejor disponible</option>
+                  <option value="1080">1080p Full HD</option>
+                  <option value="720">720p HD</option>
+                  <option value="480">480p</option>
+                  <option value="360">360p</option>
+                </select>
+              </div>
+
+              <div class="setting-item">
+                <label for="defaultAudioQualitySelect">Bitrate de audio MP3 por defecto</label>
+                <select id="defaultAudioQualitySelect" class="settings-select">
+                  <option value="320">320 kbps (Alta fidelidad)</option>
+                  <option value="192">192 kbps (Estándar)</option>
+                  <option value="128">128 kbps (Ligero)</option>
+                </select>
+              </div>
+
+              <div class="setting-item-toggle">
+                <div>
+                  <strong>Analizar enlace automáticamente al pegar</strong>
+                  <p>Inicia el análisis de miniatura y título inmediatamente al pulsar "Pegar"</p>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="autoAnalyzeToggle" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Mobile Bottom Navigation Bar -->
+    <nav class="mobile-bottom-bar">
+      <button class="bottom-tab-btn active" data-tab="downloader">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>Descargar</span>
+        <span class="mobile-badge" id="mobileActiveBadge" style="display: none;">0</span>
+      </button>
+
+      <button class="bottom-tab-btn" data-tab="browser">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        <span>Navegador</span>
+      </button>
+
+      <button class="bottom-tab-btn" data-tab="library">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+        </svg>
+        <span>Biblioteca</span>
+        <span class="mobile-badge" id="mobileLibraryBadge">0</span>
+      </button>
+
+      <button class="bottom-tab-btn" data-tab="settings">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Responsive Media Player Modal -->
+  <div class="modal-backdrop" id="playerModal" style="display: none;">
+    <div class="modal-dialog player-modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title-row">
+          <span class="modal-badge" id="playerModalFormatBadge">MP4</span>
+          <h3 class="modal-title" id="playerModalTitle">Reproduciendo medio</h3>
+        </div>
+        <button type="button" class="modal-close-btn" id="closePlayerModalBtn">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="player-container">
+          <video id="html5VideoPlayer" class="html5-player" controls preload="metadata" playsinline></video>
+          <audio id="html5AudioPlayer" class="html5-player audio-only" controls preload="metadata" style="display: none;"></audio>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <a id="playerDirectDownloadBtn" class="btn-download-direct" href="#" download>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Descargar archivo a mi dispositivo</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Scripts -->
+  <script src="/js/app.js"></script>
+  <script src="/js/downloader.js"></script>
+  <script src="/js/browser.js"></script>
+  <script src="/js/library.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/player.js"></script>
+</body>
+</html>
+
