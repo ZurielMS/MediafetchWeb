@@ -1,0 +1,10 @@
+node_modules
+downloads/*
+!downloads/.gitkeep
+session/*
+!session/.gitkeep
+debug.log
+*.log
+.git
+__pycache__
+*.pyc
