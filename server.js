@@ -34,12 +34,19 @@ try {
 }
 console.log(`[MediaFetch] Python detectado: ${pythonCmd}`);
 
-// Detect FFMPEG path from imageio_ffmpeg or system PATH
+// Detect FFMPEG path from imageio_ffmpeg or system PATH (Encoding-safe for Windows & Linux)
 let ffmpegPath = '';
 try {
-  const detectCmd = `${pythonCmd} -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"`;
-  ffmpegPath = execSync(detectCmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-  console.log(`[MediaFetch] FFMPEG detectado en: ${ffmpegPath}`);
+  const { execFileSync } = require('child_process');
+  const rawBytes = execFileSync(pythonCmd, ['-c', 'import imageio_ffmpeg, sys; sys.stdout.buffer.write(imageio_ffmpeg.get_ffmpeg_exe().encode("utf-8"))']);
+  const detected = rawBytes.toString('utf8').trim();
+  if (detected && fs.existsSync(detected)) {
+    ffmpegPath = detected;
+    console.log(`[MediaFetch] FFMPEG detectado en: ${ffmpegPath}`);
+  } else {
+    ffmpegPath = 'ffmpeg';
+    console.log('[MediaFetch] imageio_ffmpeg no disponible o ruta inválida, usando ffmpeg del sistema.');
+  }
 } catch (e) {
   ffmpegPath = 'ffmpeg';
   console.log('[MediaFetch] imageio_ffmpeg no detectado, usando ffmpeg del sistema.');
