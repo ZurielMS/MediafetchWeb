@@ -15,6 +15,16 @@ const SESSION_DIR = path.join(ROOT_DIR, 'session');
 const METADATA_FILE = path.join(DOWNLOADS_DIR, 'metadata.json');
 const COOKIES_FILE = path.join(SESSION_DIR, 'cookies.txt');
 
+// Auto-load cookies from environment variable if present (ideal for Render / Docker cloud hosting)
+if (process.env.YOUTUBE_COOKIES && (!fs.existsSync(COOKIES_FILE) || fs.statSync(COOKIES_FILE).size === 0)) {
+  try {
+    fs.writeFileSync(COOKIES_FILE, process.env.YOUTUBE_COOKIES.trim() + '\n', 'utf8');
+    console.log('[MediaFetch] Cookies cargadas automáticamente desde la variable de entorno YOUTUBE_COOKIES');
+  } catch (err) {
+    console.error('[MediaFetch] Error al inicializar cookies desde entorno:', err);
+  }
+}
+
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 if (!fs.existsSync(METADATA_FILE)) fs.writeFileSync(METADATA_FILE, JSON.stringify([]), 'utf8');
@@ -252,7 +262,10 @@ app.post('/api/analyze', (req, res) => {
     '--dump-single-json',
     '--no-playlist',
     '--no-warnings',
-    '--extractor-args', 'youtube:player_client=android,visionos',
+    '--force-ipv4',
+    '--js-runtimes', 'node',
+    '--remote-components', 'ejs:github',
+    '--extractor-args', 'youtube:player_client=default,android_vr',
   ];
 
   if (ffmpegPath && ffmpegPath !== 'ffmpeg') {
@@ -409,7 +422,10 @@ app.post('/api/download', (req, res) => {
     '--windows-filenames',
     '--newline',
     '--no-warnings',
-    '--extractor-args', 'youtube:player_client=android,visionos',
+    '--force-ipv4',
+    '--js-runtimes', 'node',
+    '--remote-components', 'ejs:github',
+    '--extractor-args', 'youtube:player_client=default,android_vr',
     '-o', outputTemplate,
   ];
 
