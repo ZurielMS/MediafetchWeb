@@ -140,28 +140,54 @@ async function run() {
 
   console.log('\n--- 4. Live Server HTTP API Tests (port 3000) ---');
 
+  // Ensure server is running for tests; if not, spawn it automatically and poll until ready
+  let spawnedServer = null;
+  try {
+    await fetchHttp('http://127.0.0.1:3000/api/status');
+  } catch (_) {
+    const { spawn } = require('child_process');
+    spawnedServer = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
+      env: { ...process.env, PORT: '3000' },
+      stdio: 'ignore'
+    });
+    
+    // Poll until server is responding
+    let ready = false;
+    for (let i = 0; i < 30; i++) {
+      await new Promise(r => setTimeout(r, 400));
+      try {
+        await fetchHttp('http://127.0.0.1:3000/api/status');
+        ready = true;
+        break;
+      } catch (e) {}
+    }
+    if (!ready) {
+      throw new Error('Server failed to start within timeout');
+    }
+  }
+
   await itAsync('GET / returns 200 and serves HTML', async () => {
-    const res = await fetchHttp('http://localhost:3000/');
+    const res = await fetchHttp('http://127.0.0.1:3000/');
     assert.strictEqual(res.statusCode, 200);
     assert(res.body.includes('MediaFetch Web'), 'Response does not include site title');
     assert(res.body.includes('id="themeToggleBtn"'), 'HTML does not include theme toggle button');
   });
 
   await itAsync('GET /css/styles.css returns 200 with proper Content-Type', async () => {
-    const res = await fetchHttp('http://localhost:3000/css/styles.css');
+    const res = await fetchHttp('http://127.0.0.1:3000/css/styles.css');
     assert.strictEqual(res.statusCode, 200);
     assert(res.headers['content-type'].includes('text/css'), 'Content-type must be text/css');
     assert(res.body.includes('[data-theme="light"]'), 'Served CSS missing light theme');
   });
 
   await itAsync('GET /js/app.js returns 200 with proper Content-Type', async () => {
-    const res = await fetchHttp('http://localhost:3000/js/app.js');
+    const res = await fetchHttp('http://127.0.0.1:3000/js/app.js');
     assert.strictEqual(res.statusCode, 200);
     assert(res.body.includes('toggleTheme'), 'Served app.js missing toggleTheme');
   });
 
   await itAsync('GET /api/status returns 200 with system diagnostics', async () => {
-    const res = await fetchHttp('http://localhost:3000/api/status');
+    const res = await fetchHttp('http://127.0.0.1:3000/api/status');
     assert.strictEqual(res.statusCode, 200);
     const data = JSON.parse(res.body);
     assert.strictEqual(data.initialized, true);
@@ -170,21 +196,21 @@ async function run() {
   });
 
   await itAsync('GET /api/library returns 200 with downloaded items array', async () => {
-    const res = await fetchHttp('http://localhost:3000/api/library');
+    const res = await fetchHttp('http://127.0.0.1:3000/api/library');
     assert.strictEqual(res.statusCode, 200);
     const data = JSON.parse(res.body);
     assert(Array.isArray(data), 'Library must return an array');
   });
 
   await itAsync('GET /api/session/cookies returns 200 with session status', async () => {
-    const res = await fetchHttp('http://localhost:3000/api/session/cookies');
+    const res = await fetchHttp('http://127.0.0.1:3000/api/session/cookies');
     assert.strictEqual(res.statusCode, 200);
     const data = JSON.parse(res.body);
     assert('hasCookies' in data, 'Missing hasCookies property');
   });
 
   await itAsync('POST /api/analyze without URL returns 400 Bad Request', async () => {
-    const res = await fetchHttp('http://localhost:3000/api/analyze', {
+    const res = await fetchHttp('http://127.0.0.1:3000/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: '' })
@@ -194,9 +220,29 @@ async function run() {
     assert(data.error, 'Should return validation error');
   });
 
+  await itAsync('POST /api/analyze with YouTube Music URL returns media metadata', async () => {
+    const res = await fetchHttp('http://127.0.0.1:3000/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://music.youtube.com/watch?v=mSjHnQ1h7bE' })
+    });
+    assert.strictEqual(res.statusCode, 200, `Expected 200, got ${res.statusCode}: ${res.body}`);
+    const data = JSON.parse(res.body);
+    assert.strictEqual(data.id, 'mSjHnQ1h7bE', 'Must match video ID');
+    assert(data.title, 'Title should be present');
+    assert(data.platform, 'Platform should be present');
+    assert.strictEqual(data.platform.label, 'YouTube Music', 'Platform label should preserve YouTube Music');
+  });
+
   console.log('\n====================================================');
   console.log(`📊 Test Results: ${passedTests}/${totalTests} tests passed (${Math.round((passedTests/totalTests)*100)}%)`);
   console.log('====================================================');
+
+  if (spawnedServer) {
+    try {
+      spawnedServer.kill();
+    } catch (_) {}
+  }
 
   if (passedTests === totalTests) {
     console.log('🎉 ALL TESTS PASSED SUCCESSFULLY!');
