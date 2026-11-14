@@ -372,11 +372,12 @@ function normalizeMediaUrl(rawUrl) {
 }
 
 // Helper: Execute yt-dlp command as a Promise with timeout and deadlock protection
-function runYtdlpProcess(args, timeoutMs = 20000) {
+function runYtdlpProcess(args, timeoutMs = 35000) {
   return new Promise(resolve => {
     const py = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], {
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'] // Closes child stdin to prevent deadlocks in container environments
+      stdio: ['ignore', 'pipe', 'pipe'], // Closes child stdin to prevent deadlocks in container environments
+      env: { ...process.env, PYTHONUNBUFFERED: '1' }
     });
     let stdoutData = '';
     let stderrData = '';
@@ -398,14 +399,14 @@ function runYtdlpProcess(args, timeoutMs = 20000) {
       stderrData += chunk.toString();
     });
 
-    py.on('close', code => {
+    py.on('close', (code, signal) => {
       if (timer) clearTimeout(timer);
-      resolve({ code, stdout: stdoutData, stderr: stderrData });
+      resolve({ code: code === null ? (signal ? -1 : 0) : code, stdout: stdoutData, stderr: stderrData, signal });
     });
 
     py.on('error', err => {
       if (timer) clearTimeout(timer);
-      resolve({ code: -1, stdout: stdoutData, stderr: err.message });
+      resolve({ code: -1, stdout: stdoutData, stderr: err.message, signal: null });
     });
   });
 }
@@ -427,8 +428,7 @@ app.post('/api/analyze', async (req, res) => {
     const args = [
       '--dump-single-json',
       '--no-playlist',
-      '--no-warnings',
-      '--socket-timeout', '10',
+      '--socket-timeout', '12',
     ];
 
     if (playerClient) {
@@ -448,12 +448,12 @@ app.post('/api/analyze', async (req, res) => {
   };
 
   // Attempt 1: android,visionos,android_vr (proven to bypass bot detection on datacenter IPs without cookies)
-  let result = await runYtdlpProcess(buildAnalyzeArgs('android,visionos,android_vr'), 15000);
+  let result = await runYtdlpProcess(buildAnalyzeArgs('android,visionos,android_vr'), 35000);
 
   // Attempt 2: Fallback if attempt 1 failed to return JSON
   if ((result.code !== 0 || !result.stdout.trim()) && !result.stdout.includes('"id":')) {
-    logDebug('warn', `Primer intento de extracción falló para ${cleanUrl}. Intentando extractor fallback...`, { stderr: result.stderr.trim() });
-    result = await runYtdlpProcess(buildAnalyzeArgs('ios,android,web_embedded'), 15000);
+    logDebug('warn', `Primer intento de extracción falló para ${cleanUrl}. Intentando extractor fallback...`, { stderr: result.stderr.trim(), code: result.code });
+    result = await runYtdlpProcess(buildAnalyzeArgs('android_vr,tv_embedded,web'), 25000);
   }
 
   if (result.code !== 0 || !result.stdout.trim()) {
@@ -652,10 +652,11 @@ app.post('/api/download', (req, res) => {
 
   activeTasks.set(taskId, taskData);
 
-  // Spawn download process with closed stdin to avoid container deadlocks
+  // Spawn download process with closed stdin and unbuffered output to avoid container deadlocks
   const child = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], {
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, PYTHONUNBUFFERED: '1' }
   });
   taskData.process = child;
 
