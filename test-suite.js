@@ -234,6 +234,19 @@ async function run() {
     assert.strictEqual(data.platform.label, 'YouTube Music', 'Platform label should preserve YouTube Music');
   });
 
+  await itAsync('POST /api/analyze with YouTube Music Radio / Mix URL extracts video cleanly', async () => {
+    const res = await fetchHttp('http://127.0.0.1:3000/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: 'https://music.youtube.com/watch?v=tFkxbRzrdZk&list=RDtFkxbRzrdZk&start_radio=1' })
+    });
+    assert.strictEqual(res.statusCode, 200, `Expected 200, got ${res.statusCode}: ${res.body}`);
+    const data = JSON.parse(res.body);
+    assert.strictEqual(data.id, 'tFkxbRzrdZk', 'Must match video ID');
+    assert(data.title, 'Title should be present');
+    assert.strictEqual(data.platform.label, 'YouTube Music', 'Platform label should preserve YouTube Music');
+  });
+
   console.log('\n====================================================');
   console.log(`📊 Test Results: ${passedTests}/${totalTests} tests passed (${Math.round((passedTests/totalTests)*100)}%)`);
   console.log('====================================================');

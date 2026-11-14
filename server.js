@@ -347,10 +347,37 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Helper: Execute yt-dlp command as a Promise with timeout
-function runYtdlpProcess(args, timeoutMs = 30000) {
+// Helper: Normalize Media URLs (strips dynamic radio/mix query parameters, maps music.youtube.com)
+function normalizeMediaUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  let cleanUrl = rawUrl.trim();
+
+  // If it's a YouTube / YouTube Music watch URL, strip extraneous radio/mix/index playlist params
+  // while keeping the exact video ID
+  if (cleanUrl.includes('youtube.com/watch') || cleanUrl.includes('music.youtube.com/watch')) {
+    try {
+      const parsed = new URL(cleanUrl.startsWith('http') ? cleanUrl : `https://${cleanUrl}`);
+      const videoId = parsed.searchParams.get('v');
+      if (videoId) {
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
+    } catch (_) {}
+  }
+
+  if (cleanUrl.includes('music.youtube.com')) {
+    return cleanUrl.replace('music.youtube.com', 'www.youtube.com');
+  }
+
+  return cleanUrl;
+}
+
+// Helper: Execute yt-dlp command as a Promise with timeout and deadlock protection
+function runYtdlpProcess(args, timeoutMs = 20000) {
   return new Promise(resolve => {
-    const py = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], { windowsHide: true });
+    const py = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'] // Closes child stdin to prevent deadlocks in container environments
+    });
     let stdoutData = '';
     let stderrData = '';
     let timer = null;
@@ -392,10 +419,7 @@ app.post('/api/analyze', async (req, res) => {
 
   const rawUrl = url.trim();
   const platform = detectPlatform(rawUrl);
-  let cleanUrl = rawUrl;
-  if (cleanUrl.includes('music.youtube.com')) {
-    cleanUrl = cleanUrl.replace('music.youtube.com', 'www.youtube.com');
-  }
+  const cleanUrl = normalizeMediaUrl(rawUrl);
 
   const hasCookies = useCookies && fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0;
 
@@ -404,8 +428,7 @@ app.post('/api/analyze', async (req, res) => {
       '--dump-single-json',
       '--no-playlist',
       '--no-warnings',
-      '--force-ipv4',
-      '--js-runtimes', 'node',
+      '--socket-timeout', '10',
     ];
 
     if (playerClient) {
@@ -424,13 +447,13 @@ app.post('/api/analyze', async (req, res) => {
     return args;
   };
 
-  // Attempt 1: android,visionos,android_vr (bypasses bot verification gate on datacenter/cloud IPs)
-  let result = await runYtdlpProcess(buildAnalyzeArgs('android,visionos,android_vr'), 25000);
+  // Attempt 1: android,visionos,android_vr (proven to bypass bot detection on datacenter IPs without cookies)
+  let result = await runYtdlpProcess(buildAnalyzeArgs('android,visionos,android_vr'), 15000);
 
   // Attempt 2: Fallback if attempt 1 failed to return JSON
   if ((result.code !== 0 || !result.stdout.trim()) && !result.stdout.includes('"id":')) {
     logDebug('warn', `Primer intento de extracción falló para ${cleanUrl}. Intentando extractor fallback...`, { stderr: result.stderr.trim() });
-    result = await runYtdlpProcess(buildAnalyzeArgs('ios,android,web_embedded'), 25000);
+    result = await runYtdlpProcess(buildAnalyzeArgs('ios,android,web_embedded'), 15000);
   }
 
   if (result.code !== 0 || !result.stdout.trim()) {
@@ -498,10 +521,7 @@ app.post('/api/download', (req, res) => {
   }
 
   const rawUrl = url.trim();
-  let cleanUrl = rawUrl;
-  if (cleanUrl.includes('music.youtube.com')) {
-    cleanUrl = cleanUrl.replace('music.youtube.com', 'www.youtube.com');
-  }
+  const cleanUrl = normalizeMediaUrl(rawUrl);
   const isVideo = format !== 'mp3';
   const platform = detectPlatform(referer || rawUrl);
 
@@ -561,8 +581,7 @@ app.post('/api/download', (req, res) => {
     '--windows-filenames',
     '--newline',
     '--no-warnings',
-    '--force-ipv4',
-    '--js-runtimes', 'node',
+    '--socket-timeout', '15',
     '--extractor-args', 'youtube:player_client=android,visionos,android_vr',
     '-o', outputTemplate,
   ];
@@ -633,8 +652,11 @@ app.post('/api/download', (req, res) => {
 
   activeTasks.set(taskId, taskData);
 
-  // Spawn download process
-  const child = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], { windowsHide: true });
+  // Spawn download process with closed stdin to avoid container deadlocks
+  const child = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
   taskData.process = child;
 
   let lastLine = '';
