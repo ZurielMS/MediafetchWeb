@@ -460,8 +460,14 @@ app.post('/api/analyze', async (req, res) => {
     const lines = result.stderr.trim().split('\n').map(l => l.trim()).filter(Boolean);
     let errMsg = lines.find(l => l.startsWith('ERROR:')) || lines[lines.length - 1] || 'No se pudo obtener la información del medio.';
     
-    if (errMsg.includes('Failed to extract any player response') || errMsg.includes('Sign in to confirm') || errMsg.includes('Please sign in')) {
-      errMsg = 'Este contenido requiere verificación de sesión. Agrega tus cookies en la pestaña Ajustes para procesarlo.';
+    if (
+      errMsg.includes('403: Forbidden') ||
+      errMsg.includes('429: Too Many Requests') ||
+      errMsg.includes('Failed to extract any player response') ||
+      errMsg.includes('Sign in to confirm') ||
+      errMsg.includes('Please sign in')
+    ) {
+      errMsg = 'YouTube bloqueó las peticiones anónimas desde la IP de este servidor en la nube (HTTP 403/429). Agrega tus cookies en la pestaña Ajustes para procesarlo en Render, o ejecuta MediaFetch localmente en tu PC donde no hay restricciones.';
     }
 
     logDebug('error', `yt-dlp analyze falló definitivamente para URL: ${cleanUrl} (código ${result.code})`, {
@@ -1142,11 +1148,24 @@ app.use((req, res) => {
 
 // Start Server
 app.listen(PORT, () => {
+  const os = require('os');
+  const ifaces = os.networkInterfaces();
+  const lanIps = [];
+  for (const dev in ifaces) {
+    for (const details of ifaces[dev]) {
+      if (details.family === 'IPv4' && !details.internal && !details.address.startsWith('172.')) {
+        lanIps.push(details.address);
+      }
+    }
+  }
+
   console.log(`\n======================================================`);
   console.log(`  🎵 MEDIAFETCH WEB — Servidor Activo y Responsivo`);
   console.log(`  🌐 Accede desde tu navegador en:`);
-  console.log(`     👉 http://localhost:${PORT}`);
-  console.log(`     👉 http://127.0.0.1:${PORT}`);
+  console.log(`     👉 Local (esta PC): http://localhost:${PORT}`);
+  lanIps.forEach(ip => {
+    console.log(`     👉 Red local (celular / tablet / otra PC): http://${ip}:${PORT}`);
+  });
   console.log(`  📁 Carpeta de descargas: ${DOWNLOADS_DIR}`);
   console.log(`======================================================\n`);
 });
