@@ -347,100 +347,136 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Helper: Execute yt-dlp command as a Promise with timeout
+function runYtdlpProcess(args, timeoutMs = 30000) {
+  return new Promise(resolve => {
+    const py = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], { windowsHide: true });
+    let stdoutData = '';
+    let stderrData = '';
+    let timer = null;
+
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try {
+          py.kill('SIGKILL');
+        } catch (_) {}
+      }, timeoutMs);
+    }
+
+    py.stdout.on('data', chunk => {
+      stdoutData += chunk.toString();
+    });
+
+    py.stderr.on('data', chunk => {
+      stderrData += chunk.toString();
+    });
+
+    py.on('close', code => {
+      if (timer) clearTimeout(timer);
+      resolve({ code, stdout: stdoutData, stderr: stderrData });
+    });
+
+    py.on('error', err => {
+      if (timer) clearTimeout(timer);
+      resolve({ code: -1, stdout: stdoutData, stderr: err.message });
+    });
+  });
+}
+
 // 2. Analyze URL
-app.post('/api/analyze', (req, res) => {
+app.post('/api/analyze', async (req, res) => {
   const { url, useCookies = true } = req.body;
   if (!url || typeof url !== 'string' || !url.trim()) {
     return res.status(400).json({ error: 'Debes proporcionar una URL válida.' });
   }
 
-  let cleanUrl = url.trim();
-  if (cleanUrl.includes('music.youtube.com/watch')) {
+  const rawUrl = url.trim();
+  const platform = detectPlatform(rawUrl);
+  let cleanUrl = rawUrl;
+  if (cleanUrl.includes('music.youtube.com')) {
     cleanUrl = cleanUrl.replace('music.youtube.com', 'www.youtube.com');
   }
-  const args = [
-    '--dump-single-json',
-    '--no-playlist',
-    '--no-warnings',
-    '--force-ipv4',
-    '--js-runtimes', 'node',
-    '--remote-components', 'ejs:github',
-    '--extractor-args', 'youtube:player_client=default,android_vr',
-  ];
 
-  if (ffmpegPath && ffmpegPath !== 'ffmpeg') {
-    args.push('--ffmpeg-location', ffmpegPath);
-  }
+  const hasCookies = useCookies && fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0;
 
-  if (useCookies && fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0) {
-    args.push('--cookies', COOKIES_FILE);
-  }
+  const buildAnalyzeArgs = (playerClient) => {
+    const args = [
+      '--dump-single-json',
+      '--no-playlist',
+      '--no-warnings',
+      '--force-ipv4',
+      '--js-runtimes', 'node',
+    ];
 
-  args.push(cleanUrl);
-
-  const py = spawn(ytdlpRunner.cmd, [...ytdlpRunner.prefixArgs, ...args], { windowsHide: true });
-  let stdoutData = '';
-  let stderrData = '';
-
-  py.stdout.on('data', chunk => {
-    stdoutData += chunk.toString();
-  });
-
-  py.stderr.on('data', chunk => {
-    stderrData += chunk.toString();
-  });
-
-  py.on('close', code => {
-    if (code !== 0 || !stdoutData.trim()) {
-      const lines = stderrData.trim().split('\n').map(l => l.trim()).filter(Boolean);
-      let errMsg = lines.find(l => l.startsWith('ERROR:')) || lines[lines.length - 1] || 'No se pudo obtener la información del medio.';
-      
-      if (errMsg.includes('Failed to extract any player response') || errMsg.includes('Sign in to confirm') || errMsg.includes('Please sign in')) {
-        errMsg = 'Este contenido requiere verificación de sesión. Agrega tus cookies en la pestaña Ajustes para procesarlo.';
-      }
-
-      logDebug('error', `yt-dlp analyze falló para URL: ${cleanUrl} (código ${code})`, {
-        stderr: stderrData.trim(),
-        errMsg
-      });
-      return res.status(422).json({ error: errMsg });
+    if (playerClient) {
+      args.push('--extractor-args', `youtube:player_client=${playerClient}`);
     }
 
-    try {
-      const info = JSON.parse(stdoutData);
-      const platform = detectPlatform(cleanUrl);
+    if (ffmpegPath && ffmpegPath !== 'ffmpeg') {
+      args.push('--ffmpeg-location', ffmpegPath);
+    }
 
-      // Extract available resolutions
-      const heights = new Set();
-      if (Array.isArray(info.formats)) {
-        for (const f of info.formats) {
-          if (f.height && f.vcodec !== 'none') {
-            heights.add(f.height);
-          }
+    if (hasCookies) {
+      args.push('--cookies', COOKIES_FILE);
+    }
+
+    args.push(cleanUrl);
+    return args;
+  };
+
+  // Attempt 1: android,visionos,android_vr (bypasses bot verification gate on datacenter/cloud IPs)
+  let result = await runYtdlpProcess(buildAnalyzeArgs('android,visionos,android_vr'), 25000);
+
+  // Attempt 2: Fallback if attempt 1 failed to return JSON
+  if ((result.code !== 0 || !result.stdout.trim()) && !result.stdout.includes('"id":')) {
+    logDebug('warn', `Primer intento de extracción falló para ${cleanUrl}. Intentando extractor fallback...`, { stderr: result.stderr.trim() });
+    result = await runYtdlpProcess(buildAnalyzeArgs('ios,android,web_embedded'), 25000);
+  }
+
+  if (result.code !== 0 || !result.stdout.trim()) {
+    const lines = result.stderr.trim().split('\n').map(l => l.trim()).filter(Boolean);
+    let errMsg = lines.find(l => l.startsWith('ERROR:')) || lines[lines.length - 1] || 'No se pudo obtener la información del medio.';
+    
+    if (errMsg.includes('Failed to extract any player response') || errMsg.includes('Sign in to confirm') || errMsg.includes('Please sign in')) {
+      errMsg = 'Este contenido requiere verificación de sesión. Agrega tus cookies en la pestaña Ajustes para procesarlo.';
+    }
+
+    logDebug('error', `yt-dlp analyze falló definitivamente para URL: ${cleanUrl} (código ${result.code})`, {
+      stderr: result.stderr.trim(),
+      errMsg
+    });
+    return res.status(422).json({ error: errMsg });
+  }
+
+  try {
+    const info = JSON.parse(result.stdout);
+
+    // Extract available resolutions
+    const heights = new Set();
+    if (Array.isArray(info.formats)) {
+      for (const f of info.formats) {
+        if (f.height && f.vcodec !== 'none') {
+          heights.add(f.height);
         }
       }
-      const availableQualities = Array.from(heights).sort((a, b) => b - a);
-
-      res.json({
-        id: info.id || '',
-        title: info.title || 'Sin título',
-        uploader: info.uploader || info.channel || info.artist || 'Desconocido',
-        duration: info.duration || 0,
-        thumbnail: info.thumbnail || (info.thumbnails && info.thumbnails.length ? info.thumbnails[info.thumbnails.length - 1].url : ''),
-        extractor: info.extractor || info.extractor_key || '',
-        webpageUrl: info.webpage_url || cleanUrl,
-        availableQualities,
-        platform,
-      });
-    } catch (parseErr) {
-      console.error('JSON parse error:', parseErr);
-      res.status(500).json({ error: 'Respuesta inválida del extractor yt-dlp.' });
     }
-  });
+    const availableQualities = Array.from(heights).sort((a, b) => b - a);
 
-  py.on('error', err => {
-    res.status(500).json({ error: `Error al ejecutar yt-dlp: ${err.message}` });
-  });
+    res.json({
+      id: info.id || '',
+      title: info.title || 'Sin título',
+      uploader: info.uploader || info.channel || info.artist || 'Desconocido',
+      duration: info.duration || 0,
+      thumbnail: info.thumbnail || (info.thumbnails && info.thumbnails.length ? info.thumbnails[info.thumbnails.length - 1].url : ''),
+      extractor: info.extractor || info.extractor_key || '',
+      webpageUrl: info.webpage_url || cleanUrl,
+      availableQualities,
+      platform,
+    });
+  } catch (parseErr) {
+    console.error('JSON parse error:', parseErr);
+    res.status(500).json({ error: 'Respuesta inválida del extractor yt-dlp.' });
+  }
 });
 
 // 3. Start Download
@@ -461,12 +497,13 @@ app.post('/api/download', (req, res) => {
     return res.status(400).json({ error: 'La URL es obligatoria.' });
   }
 
-  let cleanUrl = url.trim();
-  if (cleanUrl.includes('music.youtube.com/watch')) {
+  const rawUrl = url.trim();
+  let cleanUrl = rawUrl;
+  if (cleanUrl.includes('music.youtube.com')) {
     cleanUrl = cleanUrl.replace('music.youtube.com', 'www.youtube.com');
   }
   const isVideo = format !== 'mp3';
-  const platform = detectPlatform(referer || cleanUrl);
+  const platform = detectPlatform(referer || rawUrl);
 
   // Check if task already running
   if (activeTasks.has(taskId) && activeTasks.get(taskId).phase !== 'completed' && activeTasks.get(taskId).phase !== 'error') {
@@ -526,8 +563,7 @@ app.post('/api/download', (req, res) => {
     '--no-warnings',
     '--force-ipv4',
     '--js-runtimes', 'node',
-    '--remote-components', 'ejs:github',
-    '--extractor-args', 'youtube:player_client=default,android_vr',
+    '--extractor-args', 'youtube:player_client=android,visionos,android_vr',
     '-o', outputTemplate,
   ];
 
