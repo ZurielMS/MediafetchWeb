@@ -23,6 +23,9 @@
   const analyzeLoading = document.getElementById('analyzeLoading');
   const analyzeErrorCard = document.getElementById('analyzeErrorCard');
   const analyzeErrorMsg = document.getElementById('analyzeErrorMsg');
+  const analyzeErrorActions = document.getElementById('analyzeErrorActions');
+  const errorAcceptCookiesBtn = document.getElementById('errorAcceptCookiesBtn');
+  const errorGoSettingsBtn = document.getElementById('errorGoSettingsBtn');
 
   const mediaPreviewCard = document.getElementById('mediaPreviewCard');
   const previewThumbnail = document.getElementById('previewThumbnail');
@@ -125,6 +128,7 @@
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: targetUrl }),
       });
@@ -133,7 +137,12 @@
       analyzeLoading.style.display = 'none';
 
       if (!res.ok) {
-        analyzeErrorMsg.textContent = data.error || 'No se pudo analizar el enlace.';
+        const msg = data.error || 'No se pudo analizar el enlace.';
+        analyzeErrorMsg.textContent = msg;
+        if (analyzeErrorActions) {
+          const isCookieErr = /cookie|sesión|bloqueó|403|429|verificación/i.test(msg);
+          analyzeErrorActions.style.display = isCookieErr ? 'flex' : 'none';
+        }
         analyzeErrorCard.style.display = 'flex';
         return;
       }
@@ -143,6 +152,7 @@
     } catch (err) {
       analyzeLoading.style.display = 'none';
       analyzeErrorMsg.textContent = 'Error al comunicarse con el servidor local.';
+      if (analyzeErrorActions) analyzeErrorActions.style.display = 'none';
       analyzeErrorCard.style.display = 'flex';
     }
   }
@@ -224,6 +234,7 @@
     try {
       const res = await fetch('/api/download', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           taskId,
@@ -304,7 +315,7 @@
 
       <div class="task-actions-row">
         ${isCompleted && task.result ? `
-          <a class="btn-task-action btn-task-direct" href="${task.result.downloadUrl}?download=1" download="${window.appModule.escapeHtml(task.result.fileName)}" target="_blank" rel="noopener noreferrer">
+          <a class="btn-task-action btn-task-direct" href="${task.result.downloadUrl}?download=1" download="${window.appModule.escapeHtml(task.result.fileName)}">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right: 4px; vertical-align: middle;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Guardar archivo
           </a>
@@ -469,6 +480,19 @@
     clearUrlBtn.addEventListener('click', clearInput);
     pasteBtn.addEventListener('click', pasteClipboard);
     analyzeBtn.addEventListener('click', () => analyzeUrl());
+
+    if (errorAcceptCookiesBtn) {
+      errorAcceptCookiesBtn.addEventListener('click', async () => {
+        await window.appModule.acceptCookies(true);
+        analyzeUrl();
+      });
+    }
+
+    if (errorGoSettingsBtn) {
+      errorGoSettingsBtn.addEventListener('click', () => {
+        window.appModule.switchTab('settings');
+      });
+    }
 
     // Format Chips
     document.querySelectorAll('.format-chip').forEach(btn => {

@@ -81,6 +81,17 @@
 
       <!-- Header Right Actions -->
       <div class="header-actions">
+        <!-- Quick Cookie Consent / Status Button -->
+        <button type="button" class="cookie-header-btn" id="headerCookiesBtn" title="Aceptar o gestionar cookies de sesión" aria-label="Cookies de sesión">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"></path>
+            <path d="M8.5 8.5v.01"></path>
+            <path d="M16 15.5v.01"></path>
+            <path d="M12 12v.01"></path>
+          </svg>
+          <span id="headerCookiesText">Aceptar cookies</span>
+        </button>
+
         <!-- Theme Toggle Button -->
         <button type="button" class="theme-toggle-btn" id="themeToggleBtn" aria-label="Cambiar tema (Claro / Oscuro)" title="Cambiar tema">
           <svg class="theme-icon sun-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -190,6 +201,10 @@
               <div class="error-text-content">
                 <strong>Error al obtener el medio</strong>
                 <p id="analyzeErrorMsg">Verifica que el enlace sea correcto y accesible.</p>
+                <div class="error-inline-actions" id="analyzeErrorActions" style="display: none;">
+                  <button type="button" class="btn-accept-cookies btn-sm-cookie" id="errorAcceptCookiesBtn">Aceptar cookies y reintentar</button>
+                  <button type="button" class="btn-cookie-config btn-sm-cookie" id="errorGoSettingsBtn">Ir a Ajustes</button>
+                </div>
               </div>
             </div>
 
@@ -531,14 +546,33 @@
 
             <textarea id="cookiesTextInput" class="cookies-textarea" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com  TRUE  /  FALSE  2147483647  SID  ..."></textarea>
 
-            <button type="button" class="btn-primary" id="saveCookiesBtn">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                <polyline points="7 3 7 8 15 8"></polyline>
-              </svg>
-              <span>Guardar cookies de sesión</span>
-            </button>
+            <div class="cookies-actions-group">
+              <button type="button" class="btn-primary" id="saveCookiesBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                  <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                <span>Guardar cookies de sesión</span>
+              </button>
+
+              <button type="button" class="btn-secondary" id="uploadCookiesFileBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <span>Subir archivo cookies.txt</span>
+              </button>
+              <input type="file" id="cookiesFileInput" accept=".txt,text/plain" style="display: none;">
+
+              <button type="button" class="btn-accept-cookies" id="acceptDefaultCookiesBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span>Aceptar cookies esenciales</span>
+              </button>
+            </div>
           </div>
 
           <!-- Defaults Preferences Card -->
@@ -668,6 +702,35 @@
           </svg>
           <span>Descargar archivo a mi dispositivo</span>
         </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cookie Consent Banner (Universal Cross-Browser Downloads) -->
+  <div class="cookie-consent-banner" id="cookieConsentBanner" role="dialog" aria-live="polite" aria-label="Aceptar cookies para habilitar descargas" style="display: none;">
+    <div class="cookie-banner-inner">
+      <div class="cookie-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"></path>
+          <path d="M8.5 8.5v.01"></path>
+          <path d="M16 15.5v.01"></path>
+          <path d="M12 12v.01"></path>
+          <path d="M11 17v.01"></path>
+          <path d="M7 14v.01"></path>
+        </svg>
+      </div>
+      <div class="cookie-banner-text">
+        <strong>Acepta las cookies para descargar en cualquier navegador</strong>
+        <p>Usamos cookies de sesión esenciales para garantizar descargas directas MP4 y MP3 en Chrome, Brave, Firefox, Edge y Safari.</p>
+      </div>
+      <div class="cookie-banner-actions">
+        <button type="button" class="btn-cookie-config" id="configCookiesBtn">Configurar</button>
+        <button type="button" class="btn-accept-cookies" id="acceptCookiesBtn">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <span>Aceptar cookies</span>
+        </button>
       </div>
     </div>
   </div>

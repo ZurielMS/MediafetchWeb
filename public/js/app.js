@@ -226,6 +226,113 @@
       .replace(/'/g, '&#039;');
   }
 
+  // Cookie Consent & Cross-Browser Session Manager
+  function hasAcceptedCookies() {
+    try {
+      if (localStorage.getItem('mf_cookies_accepted') === 'true') return true;
+    } catch (_) {}
+    return document.cookie.includes('mediafetch_cookies_accepted=1');
+  }
+
+  function updateCookieUI(accepted) {
+    const headerBtn = document.getElementById('headerCookiesBtn');
+    const headerText = document.getElementById('headerCookiesText');
+    if (headerBtn) {
+      headerBtn.classList.toggle('accepted', accepted);
+      headerBtn.title = accepted
+        ? 'Cookies aceptadas y activas (clic para gestionar)'
+        : 'Aceptar cookies para habilitar descargas en todos los navegadores';
+    }
+    if (headerText) {
+      headerText.textContent = accepted ? 'Cookies activas' : 'Aceptar cookies';
+    }
+  }
+
+  function showCookieBanner() {
+    const banner = document.getElementById('cookieConsentBanner');
+    if (!banner) return;
+    banner.classList.remove('closing');
+    banner.style.display = 'flex';
+  }
+
+  function hideCookieBanner() {
+    const banner = document.getElementById('cookieConsentBanner');
+    if (!banner || banner.style.display === 'none') return;
+    banner.classList.add('closing');
+    setTimeout(() => {
+      banner.style.display = 'none';
+      banner.classList.remove('closing');
+    }, 260);
+  }
+
+  async function acceptCookies(showFeedback = true) {
+    try {
+      localStorage.setItem('mf_cookies_accepted', 'true');
+    } catch (_) {}
+
+    // Set standard first-party cookie compatible with Chrome, Brave, Firefox, Edge, and Safari
+    document.cookie = 'mediafetch_cookies_accepted=1; path=/; max-age=31536000; SameSite=Lax';
+    updateCookieUI(true);
+    hideCookieBanner();
+
+    try {
+      const res = await fetch('/api/session/accept-cookies', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (res.ok) {
+        if (showFeedback) {
+          showToast('success', '¡Cookies aceptadas! Descargas habilitadas en cualquier navegador.');
+        }
+        fetchEngineStatus();
+        if (window.settingsModule) window.settingsModule.refreshStatus();
+        return true;
+      }
+    } catch (err) {
+      console.warn('No se pudo sincronizar consentimiento con el servidor:', err);
+    }
+
+    if (showFeedback) {
+      showToast('success', '¡Cookies aceptadas en tu navegador!');
+    }
+    return true;
+  }
+
+  function initCookieConsent() {
+    const accepted = hasAcceptedCookies();
+    updateCookieUI(accepted);
+
+    const acceptBtn = document.getElementById('acceptCookiesBtn');
+    if (acceptBtn) {
+      acceptBtn.addEventListener('click', () => acceptCookies(true));
+    }
+
+    const configBtn = document.getElementById('configCookiesBtn');
+    if (configBtn) {
+      configBtn.addEventListener('click', () => {
+        hideCookieBanner();
+        switchTab('settings');
+      });
+    }
+
+    const headerCookiesBtn = document.getElementById('headerCookiesBtn');
+    if (headerCookiesBtn) {
+      headerCookiesBtn.addEventListener('click', () => {
+        if (hasAcceptedCookies()) {
+          switchTab('settings');
+        } else {
+          showCookieBanner();
+        }
+      });
+    }
+
+    if (!accepted) {
+      setTimeout(showCookieBanner, 450);
+    }
+  }
+
   // Initialize
   function init() {
     // 1. Initialize Theme
@@ -254,6 +361,9 @@
       });
     });
 
+    // 3. Initialize Cookie Consent Banner & Session Status
+    initCookieConsent();
+
     fetchEngineStatus();
     setInterval(fetchEngineStatus, 30000);
   }
@@ -263,7 +373,18 @@
     if (!fileUrl) return;
     const directUrl = `${fileUrl}${fileUrl.includes('?') ? '&' : '?'}download=1`;
 
-    // 1. Try hidden iframe (bypasses popup blockers and async click restrictions in Brave/Chrome)
+    // Detect Safari / iOS where Content-Disposition: attachment via location.assign is cleanest
+    const ua = navigator.userAgent || '';
+    const isSafariOrIOS = (/iPad|iPhone|iPod/.test(ua) || (/^((?!chrome|android|crios|fxios).)*safari/i.test(ua)));
+
+    if (isSafariOrIOS) {
+      try {
+        window.location.assign(directUrl);
+        return;
+      } catch (_) {}
+    }
+
+    // 1. Try hidden same-origin iframe (bypasses popup blockers & Brave Shields async restrictions)
     try {
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
@@ -271,23 +392,23 @@
       iframe.style.width = '0';
       iframe.style.height = '0';
       iframe.style.border = 'none';
+      iframe.setAttribute('aria-hidden', 'true');
       iframe.src = directUrl;
       document.body.appendChild(iframe);
 
       setTimeout(() => {
         try { iframe.remove(); } catch (_) {}
-      }, 45000);
+      }, 60000);
       return;
     } catch (e) {
       console.warn('Iframe download fallback:', e);
     }
 
-    // 2. Fallback: anchor click with target="_blank"
+    // 2. Fallback: same-origin anchor click (avoids blank tab popups)
     try {
       const a = document.createElement('a');
       a.href = directUrl;
       if (fileName) a.download = fileName;
-      a.target = '_blank';
       a.rel = 'noopener noreferrer';
       document.body.appendChild(a);
       a.click();
@@ -313,6 +434,9 @@
     toggleTheme,
     applyTheme,
     downloadFile,
+    acceptCookies,
+    hasAcceptedCookies,
+    showCookieBanner,
     reportError: reportErrorToServer,
     getState: () => state,
   };

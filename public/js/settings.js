@@ -14,6 +14,9 @@
   const cookiesTextInput = document.getElementById('cookiesTextInput');
   const saveCookiesBtn = document.getElementById('saveCookiesBtn');
   const clearCookiesBtn = document.getElementById('clearCookiesBtn');
+  const acceptDefaultCookiesBtn = document.getElementById('acceptDefaultCookiesBtn');
+  const uploadCookiesFileBtn = document.getElementById('uploadCookiesFileBtn');
+  const cookiesFileInput = document.getElementById('cookiesFileInput');
   const cookiesActiveDot = document.getElementById('cookiesActiveDot');
   const cookiesActiveText = document.getElementById('cookiesActiveText');
 
@@ -37,13 +40,16 @@
   // Refresh Cookies Status
   async function refreshCookiesStatus() {
     try {
-      const res = await fetch('/api/session/cookies');
+      const res = await fetch('/api/session/cookies', { credentials: 'same-origin' });
       if (!res.ok) return;
       const data = await res.json();
 
       if (data.hasCookies) {
         cookiesActiveDot.className = 'status-dot online';
-        cookiesActiveText.textContent = `Sesión activa (${data.cookieCount} cookies configuradas)`;
+        const modeLabel = data.mode === 'authenticated'
+          ? `Sesión autenticada (${data.cookieCount} cookies activas)`
+          : `Cookies esenciales aceptadas (${data.cookieCount} cookies activas)`;
+        cookiesActiveText.textContent = modeLabel;
         clearCookiesBtn.style.display = 'inline-block';
       } else {
         cookiesActiveDot.className = 'status-dot';
@@ -56,8 +62,8 @@
   }
 
   // Save Cookies
-  async function saveCookies() {
-    const content = cookiesTextInput.value.trim();
+  async function saveCookies(explicitContent) {
+    const content = (typeof explicitContent === 'string' ? explicitContent : cookiesTextInput.value).trim();
     if (!content) {
       window.appModule.showToast('error', 'Pega primero el texto de tus cookies en formato Netscape.');
       return;
@@ -66,6 +72,7 @@
     try {
       const res = await fetch('/api/session/cookies', {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       });
@@ -76,6 +83,11 @@
         return;
       }
 
+      try {
+        localStorage.setItem('mf_cookies_accepted', 'true');
+        document.cookie = 'mediafetch_cookies_accepted=1; path=/; max-age=31536000; SameSite=Lax';
+      } catch (_) {}
+
       window.appModule.showToast('success', `¡${data.cookieCount} cookies guardadas con éxito!`);
       cookiesTextInput.value = '';
       refreshCookiesStatus();
@@ -83,6 +95,27 @@
     } catch (err) {
       window.appModule.showToast('error', 'Error al comunicar con el servidor.');
     }
+  }
+
+  // Handle Upload cookies.txt File
+  function handleCookiesFileSelect(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const text = typeof reader.result === 'string' ? reader.result : '';
+      if (text.trim()) {
+        await saveCookies(text);
+      } else {
+        window.appModule.showToast('error', 'El archivo seleccionado está vacío.');
+      }
+      cookiesFileInput.value = '';
+    };
+    reader.onerror = () => {
+      window.appModule.showToast('error', 'No se pudo leer el archivo cookies.txt.');
+      cookiesFileInput.value = '';
+    };
+    reader.readAsText(file);
   }
 
   // Clear Cookies
@@ -169,9 +202,20 @@
       localStorage.setItem('mf_auto_analyze', e.target.checked);
     });
 
-    saveCookiesBtn.addEventListener('click', saveCookies);
+    saveCookiesBtn.addEventListener('click', () => saveCookies());
     clearCookiesBtn.addEventListener('click', clearCookies);
     updateEngineBtn.addEventListener('click', updateEngine);
+
+    if (acceptDefaultCookiesBtn) {
+      acceptDefaultCookiesBtn.addEventListener('click', () => {
+        window.appModule.acceptCookies(true);
+      });
+    }
+
+    if (uploadCookiesFileBtn && cookiesFileInput) {
+      uploadCookiesFileBtn.addEventListener('click', () => cookiesFileInput.click());
+      cookiesFileInput.addEventListener('change', handleCookiesFileSelect);
+    }
 
     refreshCookiesStatus();
   }

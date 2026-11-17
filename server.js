@@ -183,7 +183,7 @@ function logDebug(level, message, details = null) {
 logDebug('info', `Servidor iniciado en puerto ${PORT}. FFMPEG: ${ffmpegPath || 'detectando...'}`);
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -945,16 +945,27 @@ app.get('/api/files/:filename', (req, res) => {
   const isMp3 = ext === '.mp3';
   const contentType = isMp4 ? 'video/mp4' : (isMp3 ? 'audio/mpeg' : 'application/octet-stream');
 
-  // If user requested direct download: use res.download() for 100% cross-browser RFC compatibility
+  // If user requested direct download: send strict cross-browser RFC 5987 attachment headers (Brave, Chrome, Firefox, Edge, Safari)
   if (req.query.download === '1' || req.query.download === 'true') {
     logDebug('info', `Iniciando descarga a disco para cliente: ${filename} (${stat.size} bytes)`);
 
-    res.setHeader('Cache-Control', 'public, max-age=0');
-    return res.download(filePath, filename, err => {
-      if (err && !res.headersSent) {
-        logDebug('error', `Error durante res.download para ${filename}:`, err.message);
-      }
+    const asciiFallback = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '');
+    const encodedUtf8 = encodeURIComponent(filename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedUtf8}`);
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
+
+    const stream = fs.createReadStream(filePath);
+    req.on('close', () => { try { stream.destroy(); } catch (_) {} });
+    stream.on('error', err => {
+      logDebug('error', `Error durante streaming de descarga para ${filename}:`, err.message);
+      if (!res.headersSent) res.status(500).end();
     });
+    return stream.pipe(res);
   }
 
   // Range support for HTML5 video/audio playback
@@ -1014,27 +1025,75 @@ app.delete('/api/library/:id', (req, res) => {
   res.json({ success: true, removed });
 });
 
+// Helper: Default baseline YouTube consent cookies in Netscape format (bypasses consent walls)
+const DEFAULT_CONSENT_COOKIES = [
+  '# Netscape HTTP Cookie File',
+  '# MediaFetch Web — Consentimiento de Cookies Esenciales',
+  '.youtube.com\tTRUE\t/\tTRUE\t2147483647\tCONSENT\tYES+cb',
+  '.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSOCS\tCAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiADGgYIgJnPpwY',
+  '.youtube.com\tTRUE\t/\tTRUE\t2147483647\tPREF\ttz=America.Mexico_City&hl=es',
+  ''
+].join('\n');
+
 // 10. Session Cookies Management
 app.get('/api/session/cookies', (req, res) => {
+  const cookieHeader = req.headers.cookie || '';
+  const consentAccepted = cookieHeader.includes('mediafetch_cookies_accepted=1');
+
   if (!fs.existsSync(COOKIES_FILE)) {
-    return res.json({ hasCookies: false, cookieCount: 0, sizeBytes: 0 });
+    return res.json({ hasCookies: false, consentAccepted, cookieCount: 0, sizeBytes: 0, mode: 'none' });
   }
   const stat = fs.statSync(COOKIES_FILE);
   if (stat.size === 0) {
-    return res.json({ hasCookies: false, cookieCount: 0, sizeBytes: 0 });
+    return res.json({ hasCookies: false, consentAccepted, cookieCount: 0, sizeBytes: 0, mode: 'none' });
   }
 
   try {
     const content = fs.readFileSync(COOKIES_FILE, 'utf8');
     const lines = content.split('\n').filter(line => line.trim() && !line.startsWith('#'));
+    const isAuthenticated = lines.some(line => /\t(SID|HSID|SSID|APISID|SAPISID|LOGIN_INFO)\t/.test(line));
     res.json({
       hasCookies: true,
+      consentAccepted,
       cookieCount: lines.length,
       sizeBytes: stat.size,
       updatedAt: stat.mtimeMs,
+      mode: isAuthenticated ? 'authenticated' : 'consent',
     });
   } catch (err) {
-    res.json({ hasCookies: false, cookieCount: 0, sizeBytes: 0 });
+    res.json({ hasCookies: false, consentAccepted, cookieCount: 0, sizeBytes: 0, mode: 'none' });
+  }
+});
+
+// 10b. Quick Accept Cookies Endpoint (Sets cross-browser consent cookie + initializes baseline session jar)
+app.post('/api/session/accept-cookies', (req, res) => {
+  try {
+    // Set standard first-party cookie compatible with Chrome, Brave, Firefox, Edge, and Safari
+    res.setHeader('Set-Cookie', 'mediafetch_cookies_accepted=1; Path=/; Max-Age=31536000; SameSite=Lax');
+
+    // Only write baseline consent cookies if no authenticated cookies file already exists
+    let hasExisting = fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0;
+    if (!hasExisting) {
+      fs.writeFileSync(COOKIES_FILE, DEFAULT_CONSENT_COOKIES, 'utf8');
+    }
+
+    const content = fs.readFileSync(COOKIES_FILE, 'utf8');
+    const lines = content.split('\n').filter(line => line.trim() && !line.startsWith('#'));
+    const isAuthenticated = lines.some(line => /\t(SID|HSID|SSID|APISID|SAPISID|LOGIN_INFO)\t/.test(line));
+
+    logDebug('info', `Consentimiento de cookies aceptado por el navegador (${lines.length} cookies activas, modo: ${isAuthenticated ? 'authenticated' : 'consent'}).`);
+
+    res.json({
+      success: true,
+      consentAccepted: true,
+      hasCookies: true,
+      cookieCount: lines.length,
+      mode: isAuthenticated ? 'authenticated' : 'consent',
+      message: 'Cookies aceptadas y sesión habilitada para todos los navegadores.',
+    });
+  } catch (err) {
+    logDebug('error', 'Error al aceptar cookies:', err.message);
+    res.status(500).json({ error: `Error al activar las cookies: ${err.message}` });
   }
 });
 

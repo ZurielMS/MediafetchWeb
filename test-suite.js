@@ -86,6 +86,15 @@ async function run() {
     assert(htmlContent.includes('class="chip-check-indicator"'), 'Missing chip checkmark indicator');
   });
 
+  it('HTML includes Cookie Consent Banner and accept cookies controls', () => {
+    assert(htmlContent.includes('id="cookieConsentBanner"'), 'Missing #cookieConsentBanner');
+    assert(htmlContent.includes('id="acceptCookiesBtn"'), 'Missing #acceptCookiesBtn');
+    assert(htmlContent.includes('id="configCookiesBtn"'), 'Missing #configCookiesBtn');
+    assert(htmlContent.includes('id="headerCookiesBtn"'), 'Missing #headerCookiesBtn');
+    assert(htmlContent.includes('id="acceptDefaultCookiesBtn"'), 'Missing #acceptDefaultCookiesBtn');
+    assert(htmlContent.includes('id="cookiesFileInput"'), 'Missing #cookiesFileInput');
+  });
+
   console.log('\n--- 2. Verification of CSS Design System & Themes ---');
   const cssPath = path.join(__dirname, 'public', 'css', 'styles.css');
   const cssContent = fs.readFileSync(cssPath, 'utf8');
@@ -119,6 +128,12 @@ async function run() {
     assert(cssContent.includes('.format-chip.active[data-format="mp3"]'), 'Missing active mp3 format chip styling');
   });
 
+  it('CSS defines cookie consent banner and accept button styles', () => {
+    assert(cssContent.includes('.cookie-consent-banner'), 'Missing .cookie-consent-banner styles');
+    assert(cssContent.includes('.btn-accept-cookies'), 'Missing .btn-accept-cookies styles');
+    assert(cssContent.includes('.cookie-header-btn'), 'Missing .cookie-header-btn styles');
+  });
+
   console.log('\n--- 3. Verification of JavaScript Modules ---');
   const appJsPath = path.join(__dirname, 'public', 'js', 'app.js');
   const appJsContent = fs.readFileSync(appJsPath, 'utf8');
@@ -128,6 +143,14 @@ async function run() {
     assert(appJsContent.includes('toggleTheme'), 'Missing toggleTheme in app.js');
     assert(appJsContent.includes('applyTheme'), 'Missing applyTheme in app.js');
     assert(appJsContent.includes('window.matchMedia'), 'Missing system theme listener support');
+  });
+
+  it('app.js exports cookie consent and cross-browser downloader functions', () => {
+    assert(appJsContent.includes('acceptCookies'), 'Missing acceptCookies in app.js');
+    assert(appJsContent.includes('hasAcceptedCookies'), 'Missing hasAcceptedCookies in app.js');
+    assert(appJsContent.includes('showCookieBanner'), 'Missing showCookieBanner in app.js');
+    assert(appJsContent.includes('/api/session/accept-cookies'), 'Missing accept-cookies API call in app.js');
+    assert(appJsContent.includes('downloadFile'), 'Missing downloadFile in app.js');
   });
 
   const settingsJsPath = path.join(__dirname, 'public', 'js', 'settings.js');
@@ -207,6 +230,47 @@ async function run() {
     assert.strictEqual(res.statusCode, 200);
     const data = JSON.parse(res.body);
     assert('hasCookies' in data, 'Missing hasCookies property');
+    assert('consentAccepted' in data, 'Missing consentAccepted property');
+  });
+
+  await itAsync('POST /api/session/accept-cookies sets cross-browser cookie and initializes session', async () => {
+    const res = await fetchHttp('http://127.0.0.1:3000/api/session/accept-cookies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assert.strictEqual(res.statusCode, 200);
+    const setCookie = res.headers['set-cookie'];
+    assert(setCookie && setCookie.some(c => c.includes('mediafetch_cookies_accepted=1') && c.includes('SameSite=Lax')), 'Missing Set-Cookie mediafetch_cookies_accepted=1 with SameSite=Lax');
+    const data = JSON.parse(res.body);
+    assert.strictEqual(data.success, true);
+    assert.strictEqual(data.consentAccepted, true);
+    assert.strictEqual(data.hasCookies, true);
+    assert(data.cookieCount >= 1, 'Expected at least 1 active cookie');
+
+    // Verify GET /api/session/cookies reflects consentAccepted=true when browser sends cookie
+    const checkRes = await fetchHttp('http://127.0.0.1:3000/api/session/cookies', {
+      headers: { 'Cookie': 'mediafetch_cookies_accepted=1' }
+    });
+    assert.strictEqual(checkRes.statusCode, 200);
+    const checkData = JSON.parse(checkRes.body);
+    assert.strictEqual(checkData.consentAccepted, true);
+    assert.strictEqual(checkData.hasCookies, true);
+  });
+
+  await itAsync('GET /api/files/:filename?download=1 serves cross-browser RFC 5987 download headers', async () => {
+    const tempFileName = 'prueba_canción_ñ.mp3';
+    const tempFilePath = path.join(__dirname, 'downloads', tempFileName);
+    fs.writeFileSync(tempFilePath, Buffer.from('ID3_TEST_AUDIO_PAYLOAD'), 'binary');
+    try {
+      const res = await fetchHttp(`http://127.0.0.1:3000/api/files/${encodeURIComponent(tempFileName)}?download=1`);
+      assert.strictEqual(res.statusCode, 200);
+      assert(res.headers['content-disposition'].includes('attachment;'), 'Missing attachment Content-Disposition');
+      assert(res.headers['content-disposition'].includes("filename*=UTF-8''"), 'Missing RFC 5987 UTF-8 filename');
+      assert.strictEqual(res.headers['x-content-type-options'], 'nosniff', 'Missing X-Content-Type-Options: nosniff');
+      assert.strictEqual(res.headers['content-type'], 'application/octet-stream', 'Expected application/octet-stream for forced download');
+    } finally {
+      try { fs.unlinkSync(tempFilePath); } catch (_) {}
+    }
   });
 
   await itAsync('POST /api/analyze without URL returns 400 Bad Request', async () => {
