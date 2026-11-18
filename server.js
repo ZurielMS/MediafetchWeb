@@ -15,6 +15,9 @@ const SESSION_DIR = path.join(ROOT_DIR, 'session');
 const METADATA_FILE = path.join(DOWNLOADS_DIR, 'metadata.json');
 const COOKIES_FILE = path.join(SESSION_DIR, 'cookies.txt');
 
+// Get proxy from environment (useful for cloud servers without cookies)
+const PROXY_URL = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || null;
+
 // Auto-load cookies from environment variable if present (ideal for Render / Docker cloud hosting)
 if (process.env.YOUTUBE_COOKIES && (!fs.existsSync(COOKIES_FILE) || fs.statSync(COOKIES_FILE).size === 0)) {
   try {
@@ -23,6 +26,10 @@ if (process.env.YOUTUBE_COOKIES && (!fs.existsSync(COOKIES_FILE) || fs.statSync(
   } catch (err) {
     console.error('[MediaFetch] Error al inicializar cookies desde entorno:', err);
   }
+}
+
+if (PROXY_URL) {
+  console.log(`[MediaFetch] Proxy configurado: ${PROXY_URL}`);
 }
 
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
@@ -437,6 +444,10 @@ app.post('/api/analyze', async (req, res) => {
 
     if (ffmpegPath && ffmpegPath !== 'ffmpeg') {
       args.push('--ffmpeg-location', ffmpegPath);
+    }
+
+    if (PROXY_URL) {
+      args.push('--proxy', PROXY_URL);
     }
 
     if (hasCookies) {
