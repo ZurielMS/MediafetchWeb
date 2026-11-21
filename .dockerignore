@@ -1,4 +1,8 @@
 node_modules
+# Evita incluir ejecutables locales y archivos de entorno en la imagen.
+bin/
+.env
+.env.*
 downloads/*
 !downloads/.gitkeep
 session/*

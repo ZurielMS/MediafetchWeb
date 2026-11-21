@@ -156,6 +156,18 @@ try {
   console.log('[MediaFetch] imageio_ffmpeg no detectado, usando ffmpeg del sistema.');
 }
 
+// Una ruta configurada no garantiza que FFmpeg pueda ejecutarse en Render.
+let ffmpegReady = false;
+try {
+  execFileSync(ffmpegPath, ['-version'], { stdio: 'ignore', timeout: 5000, windowsHide: true });
+  ffmpegReady = true;
+} catch (_) {
+  console.warn('[MediaFetch] No se pudo ejecutar FFmpeg.');
+}
+
+// yt-dlp necesita un runtime de JavaScript para procesar los desafíos de YouTube.
+const ytdlpJsRuntimeArgs = ['--js-runtimes', 'node'];
+
 // Debug Logging File
 const DEBUG_LOG_FILE = path.join(ROOT_DIR, 'debug.log');
 
@@ -344,8 +356,8 @@ app.get('/api/status', (req, res) => {
   res.json({
     initialized: true,
     ytdlpVersion,
-    ffmpegReady: !!ffmpegPath,
-    ffmpegPath,
+    ffmpegReady,
+    ffmpegPath: ffmpegReady ? ffmpegPath : '',
     hasCookies,
     totalDownloads: library.length,
     downloadsDir: DOWNLOADS_DIR,
@@ -389,9 +401,12 @@ function runYtdlpProcess(args, timeoutMs = 35000) {
     let stdoutData = '';
     let stderrData = '';
     let timer = null;
+    // Distingue el límite de tiempo de la app de un rechazo de la plataforma.
+    let timedOut = false;
 
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
+        timedOut = true;
         try {
           py.kill('SIGKILL');
         } catch (_) {}
@@ -408,12 +423,12 @@ function runYtdlpProcess(args, timeoutMs = 35000) {
 
     py.on('close', (code, signal) => {
       if (timer) clearTimeout(timer);
-      resolve({ code: code === null ? (signal ? -1 : 0) : code, stdout: stdoutData, stderr: stderrData, signal });
+      resolve({ code: code === null ? (signal ? -1 : 0) : code, stdout: stdoutData, stderr: stderrData, timedOut });
     });
 
     py.on('error', err => {
       if (timer) clearTimeout(timer);
-      resolve({ code: -1, stdout: stdoutData, stderr: err.message, signal: null });
+      resolve({ code: -1, stdout: stdoutData, stderr: err.message, timedOut });
     });
   });
 }
@@ -431,61 +446,44 @@ app.post('/api/analyze', async (req, res) => {
 
   const hasCookies = useCookies && fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0;
 
-  const buildAnalyzeArgs = (playerClient) => {
-    const args = [
-      '--dump-single-json',
-      '--no-playlist',
-      '--socket-timeout', '12',
-    ];
-
-    if (playerClient) {
-      args.push('--extractor-args', `youtube:player_client=${playerClient}`);
-    }
-
-    if (ffmpegPath && ffmpegPath !== 'ffmpeg') {
-      args.push('--ffmpeg-location', ffmpegPath);
-    }
-
-    if (PROXY_URL) {
-      args.push('--proxy', PROXY_URL);
-    }
-
-    if (hasCookies) {
-      args.push('--cookies', COOKIES_FILE);
-    }
-
-    args.push(cleanUrl);
-    return args;
-  };
-
-  // Attempt 1: android,visionos,android_vr (proven to bypass bot detection on datacenter IPs without cookies)
-  let result = await runYtdlpProcess(buildAnalyzeArgs('android,visionos,android_vr'), 35000);
-
-  // Attempt 2: Fallback if attempt 1 failed to return JSON
-  if ((result.code !== 0 || !result.stdout.trim()) && !result.stdout.includes('"id":')) {
-    logDebug('warn', `Primer intento de extracción falló para ${cleanUrl}. Intentando extractor fallback...`, { stderr: result.stderr.trim(), code: result.code });
-    result = await runYtdlpProcess(buildAnalyzeArgs('android_vr,tv_embedded,web'), 25000);
+  // Deja que yt-dlp elija los clientes de YouTube compatibles con la solicitud.
+  const args = ['--dump-single-json', '--no-playlist', '--socket-timeout', '12', ...ytdlpJsRuntimeArgs];
+  if (ffmpegReady && ffmpegPath !== 'ffmpeg') {
+    args.push('--ffmpeg-location', ffmpegPath);
   }
+  if (PROXY_URL) {
+    args.push('--proxy', PROXY_URL);
+  }
+  if (hasCookies) {
+    args.push('--cookies', COOKIES_FILE);
+  }
+  // El separador hace que yt-dlp interprete la entrada del usuario como una URL.
+  args.push('--', cleanUrl);
+  const result = await runYtdlpProcess(args);
 
   if (result.code !== 0 || !result.stdout.trim()) {
     const lines = result.stderr.trim().split('\n').map(l => l.trim()).filter(Boolean);
-    let errMsg = lines.find(l => l.startsWith('ERROR:')) || lines[lines.length - 1] || 'No se pudo obtener la información del medio.';
-    
-    if (
-      errMsg.includes('403: Forbidden') ||
-      errMsg.includes('429: Too Many Requests') ||
-      errMsg.includes('Failed to extract any player response') ||
-      errMsg.includes('Sign in to confirm') ||
-      errMsg.includes('Please sign in')
-    ) {
-      errMsg = 'YouTube bloqueó las peticiones anónimas desde la IP de este servidor en la nube (HTTP 403/429). Agrega tus cookies en la pestaña Ajustes para procesarlo en Render, o ejecuta MediaFetch localmente en tu PC donde no hay restricciones.';
+    const extractorError = lines.find(line => line.startsWith('ERROR:')) || lines[lines.length - 1] || '';
+    // Muestra la causa reconocida de la falla y deja el detalle técnico en el registro.
+    let error = 'No se pudo obtener la información del medio. Si el problema persiste, avisa al administrador.';
+    let status = 422;
+
+    if (result.timedOut) {
+      status = 504;
+      error = 'El análisis del enlace superó el tiempo de espera. Inténtalo de nuevo más tarde.';
+    } else if (/sign in|logged.in|login required/i.test(extractorError)) {
+      error = 'La plataforma pidió iniciar sesión o verificar el acceso a este enlace.';
+    } else if (/HTTP Error 429|429: Too Many Requests/i.test(extractorError)) {
+      error = 'La plataforma limitó las solicitudes. Inténtalo de nuevo más tarde.';
+    } else if (/HTTP Error 403|403: Forbidden/i.test(extractorError)) {
+      error = 'La plataforma rechazó el acceso al enlace desde el servidor.';
     }
 
-    logDebug('error', `yt-dlp analyze falló definitivamente para URL: ${cleanUrl} (código ${result.code})`, {
+    logDebug('error', `Falló el análisis con yt-dlp (código ${result.code}).`, {
       stderr: result.stderr.trim(),
-      errMsg
+      timedOut: result.timedOut,
     });
-    return res.status(422).json({ error: errMsg });
+    return res.status(status).json({ error });
   }
 
   try {
@@ -599,11 +597,12 @@ app.post('/api/download', (req, res) => {
     '--newline',
     '--no-warnings',
     '--socket-timeout', '15',
-    '--extractor-args', 'youtube:player_client=android,visionos,android_vr',
+    // Usa el mismo runtime de JavaScript en la descarga y en el análisis.
+    ...ytdlpJsRuntimeArgs,
     '-o', outputTemplate,
   ];
 
-  if (ffmpegPath && ffmpegPath !== 'ffmpeg') {
+  if (ffmpegReady && ffmpegPath !== 'ffmpeg') {
     args.push('--ffmpeg-location', ffmpegPath);
   }
 
@@ -650,7 +649,8 @@ app.post('/api/download', (req, res) => {
     args.push('-S', 'vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4', '--add-metadata');
   }
 
-  args.push(cleanUrl);
+  // Separa la URL de las opciones de la línea de comandos, igual que en el análisis.
+  args.push('--', cleanUrl);
 
   const taskData = {
     taskId,

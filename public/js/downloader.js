@@ -151,7 +151,8 @@
       renderPreview(data);
     } catch (err) {
       analyzeLoading.style.display = 'none';
-      analyzeErrorMsg.textContent = 'Error al comunicarse con el servidor local.';
+      // El mismo mensaje aplica si MediaFetch corre en el equipo o en Render.
+      analyzeErrorMsg.textContent = 'Error al comunicarse con el servidor de MediaFetch.';
       if (analyzeErrorActions) analyzeErrorActions.style.display = 'none';
       analyzeErrorCard.style.display = 'flex';
     }

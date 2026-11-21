@@ -1,5 +1,7 @@
 # Node Dependencies
 node_modules/
+# Los ejecutables instalados para uso local se quedan fuera del repositorio.
+bin/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

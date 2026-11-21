@@ -104,33 +104,12 @@ Abre tu navegador web en:
 
 ---
 
-## 🔧 Solucionar Error 422 (YouTube Bloqueado)
+## Instrucciones para el nuevo despliegue
 
-Si tu aplicación está desplegada en un servidor en la nube (Render, Heroku, etc.) y ves error **422 Unprocessable Entity**, YouTube está bloqueando las descargas anónimas desde la IP del servidor.
+Esta versión cambia el servicio de Render de Node nativo a **Docker**. La imagen instala Node.js 24, FFmpeg y `yt-dlp` con sus componentes JavaScript para YouTube. El servidor comprueba que FFmpeg se pueda ejecutar y distingue entre un rechazo de acceso, una solicitud de inicio de sesión y un tiempo de espera agotado.
 
-### ✅ Solución 1: Usar Localmente (100% Funciona)
-Ejecuta la aplicación en tu PC local (`npm start`). **No habrá restricciones de YouTube.**
+1. Sube el contenido del proyecto a la rama conectada a Render. `Dockerfile` y `render.yaml` deben quedar en la raíz del repositorio.
+2. Si el servicio se administra con un Blueprint, sincroniza el `render.yaml` actualizado. Si se administra desde el panel, ve a **Settings → Build → Source**, selecciona **Docker** como runtime y despliega el commit actualizado.
+3. Abre `/api/status` en el dominio publicado y verifica que `ytdlpVersion` muestre una versión y `ffmpegReady` sea `true`. Luego analiza un video público de YouTube y prueba una descarga con un archivo que tengas permiso de descargar.
 
-### ✅ Solución 2: Agregar Cookies de YouTube
-1. Ve a la pestaña **Ajustes** de tu aplicación
-2. Haz clic en **"Cargar cookies de YouTube"**
-3. Sigue las instrucciones para exportar tus cookies desde YouTube
-4. Pégalas y guarda
-
-**Instrucciones para exportar cookies:**
-- **Opción A (Chrome/Firefox)**: Instala la extensión `"Get cookies.txt LOCALLY"` en tu navegador, ve a YouTube, y descarga tus cookies
-- **Opción B (Consola)**: Desde la consola del navegador (F12) en YouTube, ejecuta:
-  ```javascript
-  copy(document.cookie); alert('Cookies copiadas');
-  ```
-
-### ✅ Solución 3: Usar un Proxy (Para Desarrolladores)
-Si despliegas en Render o similar, agrega una **variable de entorno** con tu proxy:
-
-1. Ve a la configuración de tu aplicación en Render/Heroku
-2. Agrega una variable de entorno llamada `HTTP_PROXY`:
-   ```
-   HTTP_PROXY=http://tu-proxy.com:3128
-   ```
-
----
+El análisis de YouTube pasó en el contenedor Docker de prueba. La comprobación desde la IP pública de Render se realiza después del despliegue. Si falla, busca `Falló el análisis con yt-dlp` en los logs del servicio para ver el error del extractor.

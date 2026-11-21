@@ -1,18 +1,14 @@
 services:
   - type: web
     name: mediafetch
-    runtime: node
+    # Usa el Dockerfile para que Render instale FFmpeg y el extractor con sus componentes.
+    runtime: docker
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
+    dockerfilePath: ./Dockerfile
+    # Render consulta esta ruta para comprobar que la API arrancó y responde.
+    healthCheckPath: /api/status
     envVars:
       - key: PORT
         value: 3000
       - key: NODE_ENV
         value: production
-      # Opcional: Agrega tus cookies de YouTube aquí para evitar el error 422
-      # - key: YOUTUBE_COOKIES
-      #   value: "VISITOR_INFO1_LIVE=...\nYSC=...\n..."
-      # Opcional: Agrega un proxy si necesitas bypasear restricciones
-      # - key: HTTP_PROXY
-      #   value: "http://proxy.example.com:3128"
