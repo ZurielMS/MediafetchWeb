@@ -204,6 +204,17 @@
               </div>
             </div>
 
+            <section class="card youtube-preview" id="youtubePreview" aria-labelledby="youtubePreviewTitle" hidden>
+              <h3 id="youtubePreviewTitle">Vista previa de YouTube</h3>
+              <div class="youtube-preview-actions">
+                <button type="button" class="btn-secondary" id="loadYouTubePreview">Cargar reproductor</button>
+                <a class="btn-secondary" id="openYouTubeLink" target="_blank" rel="noopener noreferrer">Abrir en YouTube</a>
+              </div>
+              <iframe id="youtubePreviewFrame" class="youtube-preview-frame" title="Reproductor oficial de YouTube"
+                referrerpolicy="strict-origin-when-cross-origin" allow="encrypted-media; picture-in-picture; fullscreen"
+                allowfullscreen hidden></iframe>
+            </section>
+
             <!-- Media Preview & Download Form Card -->
             <div class="card preview-card" id="mediaPreviewCard" style="display: none;">
               <div class="preview-layout">

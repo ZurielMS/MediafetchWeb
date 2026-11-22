@@ -714,6 +714,36 @@ html, body {
   opacity: 0.9;
 }
 
+.youtube-preview h3 {
+  font-size: 16px;
+}
+
+.youtube-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.youtube-preview-actions a {
+  text-decoration: none;
+}
+
+.youtube-preview [hidden] {
+  display: none;
+}
+
+.youtube-preview-frame {
+  display: block;
+  width: 100%;
+  min-height: 200px;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: var(--radius-md);
+  margin-top: 12px;
+  background: #000;
+}
+
 /* Preview Card */
 .preview-card {
   animation: slideUp 0.25s ease-out;

@@ -9,6 +9,7 @@
   let selectedFormat = 'mp4';
   let selectedVideoQuality = 'best';
   let selectedAudioQuality = '320';
+  let youtubePreviewId = null;
   const activeTasks = new Map();
 
   // DOM Elements
@@ -23,6 +24,10 @@
   const analyzeLoading = document.getElementById('analyzeLoading');
   const analyzeErrorCard = document.getElementById('analyzeErrorCard');
   const analyzeErrorMsg = document.getElementById('analyzeErrorMsg');
+  const youtubePreview = document.getElementById('youtubePreview');
+  const loadYouTubePreview = document.getElementById('loadYouTubePreview');
+  const openYouTubeLink = document.getElementById('openYouTubeLink');
+  const youtubePreviewFrame = document.getElementById('youtubePreviewFrame');
 
   const mediaPreviewCard = document.getElementById('mediaPreviewCard');
   const previewThumbnail = document.getElementById('previewThumbnail');
@@ -61,10 +66,48 @@
     return null;
   }
 
+  function getYouTubeVideoId(value) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch (_) {
+      return null;
+    }
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+
+    const { hostname, pathname, searchParams } = url;
+    let id;
+    if (hostname === 'youtu.be') {
+      id = pathname.match(/^\/([\w-]{11})\/?$/)?.[1];
+    } else if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com'].includes(hostname)) {
+      id = pathname === '/watch' ? searchParams.get('v') : pathname.match(/^\/(?:shorts|live|embed|v)\/([\w-]{11})\/?$/)?.[1];
+    } else if (['youtube-nocookie.com', 'www.youtube-nocookie.com'].includes(hostname)) {
+      id = pathname.match(/^\/embed\/([\w-]{11})\/?$/)?.[1];
+    }
+    return id && /^[\w-]{11}$/.test(id) ? id : null;
+  }
+
+  function updateYouTubePreview(value) {
+    const videoId = getYouTubeVideoId(value);
+    if (videoId === youtubePreviewId) return;
+
+    youtubePreviewId = videoId;
+    youtubePreviewFrame.hidden = true;
+    youtubePreviewFrame.removeAttribute('src');
+    loadYouTubePreview.hidden = false;
+    youtubePreview.hidden = !videoId;
+    if (videoId) {
+      openYouTubeLink.href = `https://www.youtube.com/watch?v=${videoId}`;
+    } else {
+      openYouTubeLink.removeAttribute('href');
+    }
+  }
+
   // Update Input UI
   function onUrlInputChange() {
     const val = urlInput.value.trim();
     clearUrlBtn.style.display = val ? 'flex' : 'none';
+    updateYouTubePreview(val);
 
     const p = detectLocalPlatform(val);
     if (p) {
@@ -468,6 +511,7 @@
 
   // Initialize Event Listeners
   function init() {
+    onUrlInputChange();
     urlInput.addEventListener('input', onUrlInputChange);
     urlInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') analyzeUrl();
@@ -476,6 +520,13 @@
     clearUrlBtn.addEventListener('click', clearInput);
     pasteBtn.addEventListener('click', pasteClipboard);
     analyzeBtn.addEventListener('click', () => analyzeUrl());
+    loadYouTubePreview.addEventListener('click', () => {
+      if (!youtubePreviewId) return;
+      // El navegador carga el reproductor oficial directamente, sin pasar por yt-dlp.
+      youtubePreviewFrame.src = `https://www.youtube-nocookie.com/embed/${youtubePreviewId}`;
+      youtubePreviewFrame.hidden = false;
+      loadYouTubePreview.hidden = true;
+    });
 
     // Format Chips
     document.querySelectorAll('.format-chip').forEach(btn => {

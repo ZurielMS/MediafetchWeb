@@ -22,6 +22,7 @@ La interfaz se adapta automáticamente a cualquier tamaño de pantalla:
 - **Pegar enlace con un clic** desde el portapapeles o mediante teclado (`Ctrl+V`).
 - **Detección inteligente de plataforma** (YouTube, TikTok, Instagram, Facebook, X, etc.).
 - **Análisis y vista previa**: Muestra miniatura, duración, autor/canal, extractor y resoluciones disponibles.
+- **Reproductor oficial de YouTube**. Al pegar un enlace de video válido, puedes cargar la vista previa o abrirlo en YouTube, incluso si el análisis de MediaFetch falla. La reproducción depende de los permisos de inserción del video.
 - **Dos formatos de salida**:
   - **MP4 (Video HD + Audio)**: Calidades `Mejor disponible`, `1080p Full HD`, `720p HD`, `480p` y `360p` (códec H.264/AAC para máxima compatibilidad).
   - **MP3 (Solo Música / Audio)**: Extracción y conversión real con FFmpeg en `320 kbps (Alta)`, `192 kbps (Estándar)` o `128 kbps (Ligero)`.
