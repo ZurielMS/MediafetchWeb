@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
+const { createInterface } = require('readline');
 const { spawn, execSync, exec } = require('child_process');
 const http = require('http');
 
@@ -273,7 +275,7 @@ function broadcastTaskProgress(taskId, data) {
 
   const subs = sseSubscribers.get(taskId);
   if (subs && subs.size > 0) {
-    const payload = `data: ${JSON.stringify(merged)}\n\n`;
+    const payload = `data: ${JSON.stringify({ ...merged, process: undefined })}\n\n`;
     for (const res of subs) {
       try {
         res.write(payload);
@@ -444,6 +446,36 @@ function runYtdlpProcess(args, timeoutMs = 35000) {
   });
 }
 
+function mediaError(stderr, platform, timedOut = false) {
+  const lines = stderr.trim().split('\n').reverse().map(l => l.trim()).filter(Boolean);
+  const extractorError = lines.find(line => line.startsWith('ERROR:')) || lines[lines.length - 1] || '';
+  // Muestra la causa reconocida de la falla y deja el detalle técnico en el registro.
+  let error = 'No se pudo obtener el medio. Si el problema persiste, avisa al administrador.';
+  let status = 422;
+  let code = 'EXTRACTOR_FAILED';
+
+  if (timedOut) {
+    status = 504;
+    code = 'EXTRACTOR_TIMEOUT';
+    error = 'La operación superó el tiempo de espera. Inténtalo de nuevo más tarde.';
+  } else if ((platform.id === 'youtube' || platform.id === 'ytmusic') &&
+             /sign in to confirm you(?:['’]re| are) not a bot/i.test(extractorError)) {
+    code = 'YOUTUBE_BOT_CHECK';
+    error = 'YouTube solicitó una verificación anti-bot a este servidor. Abre el video en YouTube para continuar allí.';
+  } else if (/sign in|logged.in|login required/i.test(extractorError)) {
+    code = 'SIGN_IN_REQUIRED';
+    error = 'La plataforma pidió iniciar sesión o verificar el acceso a este enlace.';
+  } else if (/HTTP Error 429|429: Too Many Requests/i.test(extractorError)) {
+    code = 'UPSTREAM_RATE_LIMIT';
+    error = 'La plataforma limitó las solicitudes. Inténtalo de nuevo más tarde.';
+  } else if (/HTTP Error 403|403: Forbidden/i.test(extractorError)) {
+    code = 'UPSTREAM_ACCESS_DENIED';
+    error = 'La plataforma rechazó el acceso al enlace desde el servidor.';
+  }
+
+  return { status, code, error };
+}
+
 // 2. Analyze URL
 app.post('/api/analyze', async (req, res) => {
   const { url, useCookies = true } = req.body;
@@ -473,32 +505,7 @@ app.post('/api/analyze', async (req, res) => {
   const result = await runYtdlpProcess(args);
 
   if (result.code !== 0 || !result.stdout.trim()) {
-    const lines = result.stderr.trim().split('\n').map(l => l.trim()).filter(Boolean);
-    const extractorError = lines.find(line => line.startsWith('ERROR:')) || lines[lines.length - 1] || '';
-    // Muestra la causa reconocida de la falla y deja el detalle técnico en el registro.
-    let error = 'No se pudo obtener la información del medio. Si el problema persiste, avisa al administrador.';
-    let status = 422;
-    let code = 'EXTRACTOR_FAILED';
-
-    if (result.timedOut) {
-      status = 504;
-      code = 'EXTRACTOR_TIMEOUT';
-      error = 'El análisis del enlace superó el tiempo de espera. Inténtalo de nuevo más tarde.';
-    } else if ((platform.id === 'youtube' || platform.id === 'ytmusic') &&
-               /sign in to confirm you(?:['’]re| are) not a bot/i.test(extractorError)) {
-      code = 'YOUTUBE_BOT_CHECK';
-      error = 'YouTube solicitó una verificación anti-bot a este servidor. Abre el video en YouTube para continuar allí.';
-    } else if (/sign in|logged.in|login required/i.test(extractorError)) {
-      code = 'SIGN_IN_REQUIRED';
-      error = 'La plataforma pidió iniciar sesión o verificar el acceso a este enlace.';
-    } else if (/HTTP Error 429|429: Too Many Requests/i.test(extractorError)) {
-      code = 'UPSTREAM_RATE_LIMIT';
-      error = 'La plataforma limitó las solicitudes. Inténtalo de nuevo más tarde.';
-    } else if (/HTTP Error 403|403: Forbidden/i.test(extractorError)) {
-      code = 'UPSTREAM_ACCESS_DENIED';
-      error = 'La plataforma rechazó el acceso al enlace desde el servidor.';
-    }
-
+    const { status, code, error } = mediaError(result.stderr, platform, result.timedOut);
     logDebug('error', `Falló el análisis con yt-dlp (código ${result.code}).`, {
       stderr: result.stderr.trim(),
       timedOut: result.timedOut,
@@ -558,6 +565,7 @@ app.post('/api/download', (req, res) => {
   const rawUrl = url.trim();
   const cleanUrl = normalizeMediaUrl(rawUrl);
   const isVideo = format !== 'mp3';
+  const outputExtension = isVideo ? 'mp4' : 'mp3';
   const platform = detectPlatform(referer || rawUrl);
 
   // Check if task already running
@@ -569,7 +577,8 @@ app.post('/api/download', (req, res) => {
   const library = readLibrary();
   const existingItem = library.find(item => 
     item.sourceUrl === cleanUrl && 
-    item.format === (isVideo ? 'mp4' : 'mp3') && 
+    item.format === outputExtension && item.quality === quality &&
+    path.extname(item.fileName).toLowerCase() === '.' + outputExtension &&
     fs.existsSync(path.join(DOWNLOADS_DIR, item.fileName))
   );
 
@@ -608,7 +617,12 @@ app.post('/api/download', (req, res) => {
     });
   }
 
-  const outputTemplate = path.join(DOWNLOADS_DIR, `%(title).110B.%(ext)s`);
+  if (!ffmpegReady) {
+    return res.status(503).json({ error: 'FFmpeg no está disponible para preparar la descarga.' });
+  }
+
+  const outputSuffix = ' [' + randomUUID() + '].';
+  const outputTemplate = path.join(DOWNLOADS_DIR, '%(title).110B' + outputSuffix + '%(ext)s');
 
   const args = [
     '--no-playlist',
@@ -616,6 +630,9 @@ app.post('/api/download', (req, res) => {
     '--windows-filenames',
     '--newline',
     '--no-warnings',
+    '--no-quiet',
+    '--progress',
+    '--print', 'after_move:mediafetch-output:%(filepath)j',
     '--socket-timeout', '15',
     ...ytdlpCommonArgs,
     '-o', outputTemplate,
@@ -623,6 +640,10 @@ app.post('/api/download', (req, res) => {
 
   if (ffmpegReady && ffmpegPath !== 'ffmpeg') {
     args.push('--ffmpeg-location', ffmpegPath);
+  }
+
+  if (PROXY_URL) {
+    args.push('--proxy', PROXY_URL);
   }
 
   if (useCookies && readSessionCookies()) {
@@ -665,7 +686,7 @@ app.post('/api/download', (req, res) => {
     } else {
       args.push('-f', 'bestvideo+bestaudio/best');
     }
-    args.push('-S', 'vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4', '--add-metadata');
+    args.push('-S', 'vcodec:h264,acodec:m4a', '--recode-video', 'mp4', '--add-metadata');
   }
 
   // Separa la URL de las opciones de la línea de comandos, igual que en el análisis.
@@ -697,62 +718,63 @@ app.post('/api/download', (req, res) => {
   taskData.process = child;
 
   let lastLine = '';
-  let matchedDestination = '';
+  let foundFile = '';
+  let stderr = '';
+  const outputLines = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  const outputPrefix = 'mediafetch-output:';
 
-  child.stdout.on('data', chunk => {
-    const text = chunk.toString();
-    const lines = text.split(/[\r\n]+/);
-
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      lastLine = line;
-
-      // Detect destination filename
-      // [download] Destination: ... or [Merger] Merging formats into "..."
-      const destMatch = line.match(/(?:Destination:\s+|Merging formats into\s+["']?|\[ExtractAudio\] Destination:\s+)(.+?)(?:["']|$)/i);
-      if (destMatch && destMatch[1]) {
-        matchedDestination = path.basename(destMatch[1].trim());
+  outputLines.on('line', rawLine => {
+    const line = rawLine.trim();
+    if (!line) return;
+    if (line.startsWith(outputPrefix)) {
+      try {
+        const fileName = path.basename(JSON.parse(line.slice(outputPrefix.length)));
+        if (fileName.endsWith(outputSuffix + outputExtension)) foundFile = fileName;
+      } catch (_) {
+        logDebug('warn', 'No se pudo leer la ruta final que reportó yt-dlp.');
       }
+      return;
+    }
+    lastLine = line;
 
-      // Check for progress: [download]  45.2% of  ~52.12MiB at  4.12MiB/s ETA 00:06
-      const progMatch = line.match(/\[download\]\s+([\d.]+)%\s+of\s+(?:~?\s*[\d.]+[A-Za-z]+)?(?:\s+at\s+([\d.]+[A-Za-z]+\/s))?(?:\s+ETA\s+([\d:]+))?/i);
-      if (progMatch) {
-        const percent = parseFloat(progMatch[1]);
-        const speed = progMatch[2] || '';
-        const eta = progMatch[3] || '';
-        broadcastTaskProgress(taskId, {
-          progress: percent,
-          speed,
-          eta,
-          phase: 'downloading',
-          statusLine: `Descargando: ${percent.toFixed(1)}% ${speed ? `(${speed})` : ''} ${eta ? `· Restante: ${eta}` : ''}`,
-        });
-        continue;
-      }
+    // Check for progress: [download]  45.2% of  ~52.12MiB at  4.12MiB/s ETA 00:06
+    const progMatch = line.match(/\[download\]\s+([\d.]+)%\s+of\s+(?:~?\s*[\d.]+[A-Za-z]+)?(?:\s+at\s+([\d.]+[A-Za-z]+\/s))?(?:\s+ETA\s+([\d:]+))?/i);
+    if (progMatch) {
+      const percent = parseFloat(progMatch[1]);
+      const speed = progMatch[2] || '';
+      const eta = progMatch[3] || '';
+      broadcastTaskProgress(taskId, {
+        progress: percent,
+        speed,
+        eta,
+        phase: 'downloading',
+        statusLine: `Descargando: ${percent.toFixed(1)}% ${speed ? `(${speed})` : ''} ${eta ? `· Restante: ${eta}` : ''}`,
+      });
+      return;
+    }
 
-      // Conversion / Merger phase
-      if (line.includes('[ExtractAudio]') || line.includes('[Merger]') || line.includes('ffmpeg')) {
-        broadcastTaskProgress(taskId, {
-          progress: 95,
-          phase: 'converting',
-          statusLine: isVideo ? 'Procesando y empaquetando MP4...' : 'Extrayendo audio a MP3 de alta calidad...',
-        });
-        continue;
-      }
+    // Conversion / Merger phase
+    if (line.includes('[ExtractAudio]') || line.includes('[Merger]') || line.includes('ffmpeg')) {
+      broadcastTaskProgress(taskId, {
+        progress: 95,
+        phase: 'converting',
+        statusLine: isVideo ? 'Procesando y empaquetando MP4...' : 'Extrayendo audio a MP3 de alta calidad...',
+      });
+      return;
+    }
 
-      // Finalizing / Metadata
-      if (line.includes('[Metadata]') || line.includes('Fixup') || line.includes('100% of')) {
-        broadcastTaskProgress(taskId, {
-          progress: 98,
-          phase: 'finalizing',
-          statusLine: 'Guardando metadatos y finalizando...',
-        });
-      }
+    // Finalizing / Metadata
+    if (line.includes('[Metadata]') || line.includes('Fixup') || line.includes('100% of')) {
+      broadcastTaskProgress(taskId, {
+        progress: 98,
+        phase: 'finalizing',
+        statusLine: 'Guardando metadatos y finalizando...',
+      });
     }
   });
 
   child.stderr.on('data', chunk => {
+    stderr = (stderr + chunk.toString()).slice(-8192);
     const errText = chunk.toString().trim();
     if (errText) {
       console.warn(`[yt-dlp stderr ${taskId}]:`, errText);
@@ -760,9 +782,11 @@ app.post('/api/download', (req, res) => {
   });
 
   child.on('close', (code, signal) => {
-    delete taskData.process;
+    const task = activeTasks.get(taskId);
+    delete task.process;
+    if (task.phase === 'error') return;
 
-    if (signal === 'SIGTERM' || signal === 'SIGKILL' || taskData.cancelled) {
+    if (signal === 'SIGTERM' || signal === 'SIGKILL' || task.cancelled) {
       broadcastTaskProgress(taskId, {
         phase: 'cancelled',
         progress: 0,
@@ -772,35 +796,17 @@ app.post('/api/download', (req, res) => {
     }
 
     if (code !== 0) {
-      logDebug('error', `Descarga falló para task ${taskId} (código ${code}):`, { lastLine });
+      logDebug('error', `Descarga falló para task ${taskId} (código ${code}):`, { lastLine, stderr: stderr.trim() });
       broadcastTaskProgress(taskId, {
         phase: 'error',
         progress: 0,
         statusLine: 'Error durante la descarga.',
-        errorMessage: lastLine || 'El proceso de descarga falló.',
+        errorMessage: mediaError(stderr, platform).error,
       });
       return;
     }
 
-    // Identify the output file across all compatible formats
-    let foundFile = null;
-    const targetExts = isVideo ? ['.mp4', '.mkv', '.webm', '.mov'] : ['.mp3', '.m4a', '.opus', '.aac', '.wav', '.ogg'];
-
-    if (matchedDestination && fs.existsSync(path.join(DOWNLOADS_DIR, matchedDestination))) {
-      foundFile = matchedDestination;
-    } else {
-      // Find latest file matching valid extensions (ignore temp/part files)
-      const files = fs.readdirSync(DOWNLOADS_DIR).filter(f => {
-        const ext = path.extname(f).toLowerCase();
-        return targetExts.includes(ext) && !f.includes('.temp.') && !f.endsWith('.part');
-      });
-      if (files.length > 0) {
-        files.sort((a, b) => fs.statSync(path.join(DOWNLOADS_DIR, b)).mtimeMs - fs.statSync(path.join(DOWNLOADS_DIR, a)).mtimeMs);
-        foundFile = files[0];
-      }
-    }
-
-    if (!foundFile) {
+    if (!foundFile || !fs.existsSync(path.join(DOWNLOADS_DIR, foundFile))) {
       logDebug('error', `No se encontró archivo resultante en ${DOWNLOADS_DIR} para task ${taskId}`);
       broadcastTaskProgress(taskId, {
         phase: 'error',
@@ -813,7 +819,7 @@ app.post('/api/download', (req, res) => {
 
     const fullFilePath = path.join(DOWNLOADS_DIR, foundFile);
     const stat = fs.statSync(fullFilePath);
-    const finalTitle = customTitle || foundFile.replace(/\.(mp4|mp3|webm|mkv|m4a|opus)$/i, '');
+    const finalTitle = customTitle || foundFile.slice(0, -(outputSuffix.length + outputExtension.length));
 
     const libraryItem = {
       id: taskId,
@@ -845,7 +851,7 @@ app.post('/api/download', (req, res) => {
   });
 
   child.on('error', err => {
-    delete taskData.process;
+    delete activeTasks.get(taskId).process;
     logDebug('error', `Error al iniciar proceso yt-dlp para task ${taskId}:`, err.message);
     broadcastTaskProgress(taskId, {
       phase: 'error',
