@@ -714,6 +714,11 @@ html, body {
   opacity: 0.9;
 }
 
+.error-text-content a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .youtube-preview h3 {
   font-size: 16px;
 }
@@ -2521,6 +2526,11 @@ html, body {
 
 .btn-cookie-config:active {
   transform: scale(0.97);
+}
+
+.cookies-textarea:disabled, .cookies-actions-group button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .cookies-actions-group {

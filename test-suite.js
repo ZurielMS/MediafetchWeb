@@ -231,7 +231,23 @@ async function run() {
     const data = JSON.parse(res.body);
     assert('hasCookies' in data, 'Missing hasCookies property');
     assert('consentAccepted' in data, 'Missing consentAccepted property');
+    assert.strictEqual(data.enabled, process.env.RENDER !== 'true');
   });
+
+  if (process.env.RENDER === 'true') {
+    await itAsync('Render refuses session cookie uploads and deletions', async () => {
+      const route = 'http://127.0.0.1:3000/api/session/cookies';
+      const upload = await fetchHttp(route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'cookie-fixture' }),
+      });
+      assert.strictEqual(upload.statusCode, 403);
+      const removal = await fetchHttp(route, { method: 'DELETE' });
+      assert.strictEqual(removal.statusCode, 403);
+      assert.strictEqual(JSON.parse((await fetchHttp(route)).body).hasCookies, false);
+    });
+  }
 
   await itAsync('POST /api/session/accept-cookies remembers consent without altering session cookies', async () => {
     const before = await fetchHttp('http://127.0.0.1:3000/api/session/cookies');

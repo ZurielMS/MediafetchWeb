@@ -19,6 +19,7 @@
   const cookiesFileInput = document.getElementById('cookiesFileInput');
   const cookiesActiveDot = document.getElementById('cookiesActiveDot');
   const cookiesActiveText = document.getElementById('cookiesActiveText');
+  const sessionCookiesDescription = document.getElementById('sessionCookiesDescription');
 
   const updateEngineBtn = document.getElementById('updateEngineBtn');
 
@@ -43,6 +44,17 @@
       const res = await fetch('/api/session/cookies', { credentials: 'same-origin' });
       if (!res.ok) return;
       const data = await res.json();
+      const enabled = data.enabled !== false;
+      for (const control of [cookiesTextInput, saveCookiesBtn, uploadCookiesFileBtn, cookiesFileInput]) {
+        control.disabled = !enabled;
+      }
+      if (!enabled) {
+        sessionCookiesDescription.textContent = 'En Render, MediaFetch analiza y descarga sin cookies de sesión.';
+        cookiesActiveDot.className = 'status-dot';
+        cookiesActiveText.textContent = 'Cookies de sesión desactivadas';
+        clearCookiesBtn.style.display = 'none';
+        return;
+      }
 
       if (data.hasCookies) {
         cookiesActiveDot.className = 'status-dot online';

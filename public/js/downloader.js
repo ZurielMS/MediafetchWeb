@@ -24,6 +24,7 @@
   const analyzeLoading = document.getElementById('analyzeLoading');
   const analyzeErrorCard = document.getElementById('analyzeErrorCard');
   const analyzeErrorMsg = document.getElementById('analyzeErrorMsg');
+  const youtubeDownloadAlternatives = document.getElementById('youtubeDownloadAlternatives');
   const youtubePreview = document.getElementById('youtubePreview');
   const loadYouTubePreview = document.getElementById('loadYouTubePreview');
   const openYouTubeLink = document.getElementById('openYouTubeLink');
@@ -162,6 +163,7 @@
 
     analyzeLoading.style.display = 'flex';
     analyzeErrorCard.style.display = 'none';
+    youtubeDownloadAlternatives.hidden = true;
     mediaPreviewCard.style.display = 'none';
     currentMediaInfo = null;
 
@@ -181,6 +183,7 @@
           ? 'MediaFetch no está disponible temporalmente. Inténtalo de nuevo en unos momentos.'
           : 'No se pudo analizar el enlace.';
         analyzeErrorMsg.textContent = data?.error || fallback;
+        youtubeDownloadAlternatives.hidden = data?.code !== 'YOUTUBE_BOT_CHECK';
         analyzeErrorCard.style.display = 'flex';
         return;
       }

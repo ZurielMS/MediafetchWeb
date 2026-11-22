@@ -14,19 +14,10 @@ const DOWNLOADS_DIR = path.join(ROOT_DIR, 'downloads');
 const SESSION_DIR = path.join(ROOT_DIR, 'session');
 const METADATA_FILE = path.join(DOWNLOADS_DIR, 'metadata.json');
 const COOKIES_FILE = path.join(SESSION_DIR, 'cookies.txt');
+const sessionCookiesEnabled = process.env.RENDER !== 'true';
 
 // Get proxy from environment (useful for cloud servers without cookies)
 const PROXY_URL = process.env.HTTP_PROXY || process.env.HTTPS_PROXY || null;
-
-// Auto-load cookies from environment variable if present (ideal for Render / Docker cloud hosting)
-if (process.env.YOUTUBE_COOKIES && (!fs.existsSync(COOKIES_FILE) || fs.statSync(COOKIES_FILE).size === 0)) {
-  try {
-    fs.writeFileSync(COOKIES_FILE, process.env.YOUTUBE_COOKIES.trim() + '\n', 'utf8');
-    console.log('[MediaFetch] Cookies cargadas automáticamente desde la variable de entorno YOUTUBE_COOKIES');
-  } catch (err) {
-    console.error('[MediaFetch] Error al inicializar cookies desde entorno:', err);
-  }
-}
 
 if (PROXY_URL) {
   console.log(`[MediaFetch] Proxy configurado: ${PROXY_URL}`);
@@ -35,6 +26,18 @@ if (PROXY_URL) {
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 if (!fs.existsSync(SESSION_DIR)) fs.mkdirSync(SESSION_DIR, { recursive: true });
 if (!fs.existsSync(METADATA_FILE)) fs.writeFileSync(METADATA_FILE, JSON.stringify([]), 'utf8');
+
+// Carga el archivo de sesión solo fuera de Render y evita pasar la variable a los procesos hijos.
+const startupCookies = sessionCookiesEnabled ? process.env.YOUTUBE_COOKIES?.trim() : '';
+delete process.env.YOUTUBE_COOKIES;
+if (startupCookies && (!fs.existsSync(COOKIES_FILE) || fs.statSync(COOKIES_FILE).size === 0)) {
+  try {
+    fs.writeFileSync(COOKIES_FILE, startupCookies + '\n', 'utf8');
+    console.log('[MediaFetch] Archivo de sesión inicializado desde el entorno.');
+  } catch (err) {
+    console.error('[MediaFetch] Error al inicializar cookies desde el entorno:', err);
+  }
+}
 
 // Ensure ~/.local/bin and ./bin are included in PATH for cloud environments (Render, etc.)
 const extraPaths = [
@@ -166,7 +169,9 @@ try {
 }
 
 // yt-dlp necesita un runtime de JavaScript para procesar los desafíos de YouTube.
-const ytdlpJsRuntimeArgs = ['--js-runtimes', 'node'];
+const ytdlpCommonArgs = ['--js-runtimes', 'node'];
+// En Render, los archivos de configuración de yt-dlp tampoco pueden añadir cookies.
+if (!sessionCookiesEnabled) ytdlpCommonArgs.push('--ignore-config');
 
 // Debug Logging File
 const DEBUG_LOG_FILE = path.join(ROOT_DIR, 'debug.log');
@@ -203,6 +208,12 @@ logDebug('info', `Servidor iniciado en puerto ${PORT}. FFMPEG: ${ffmpegPath || '
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
+if (!sessionCookiesEnabled) {
+  const rejectSessionChange = (req, res) => res.status(403).json({
+    error: 'Las cookies de sesión están desactivadas en Render.',
+  });
+  app.route('/api/session/cookies').post(rejectSessionChange).delete(rejectSessionChange);
+}
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -447,7 +458,7 @@ app.post('/api/analyze', async (req, res) => {
   const hasCookies = useCookies && readSessionCookies();
 
   // Deja que yt-dlp elija los clientes de YouTube compatibles con la solicitud.
-  const args = ['--dump-single-json', '--no-playlist', '--socket-timeout', '12', ...ytdlpJsRuntimeArgs];
+  const args = ['--dump-single-json', '--no-playlist', '--socket-timeout', '12', ...ytdlpCommonArgs];
   if (ffmpegReady && ffmpegPath !== 'ffmpeg') {
     args.push('--ffmpeg-location', ffmpegPath);
   }
@@ -606,8 +617,7 @@ app.post('/api/download', (req, res) => {
     '--newline',
     '--no-warnings',
     '--socket-timeout', '15',
-    // Usa el mismo runtime de JavaScript en la descarga y en el análisis.
-    ...ytdlpJsRuntimeArgs,
+    ...ytdlpCommonArgs,
     '-o', outputTemplate,
   ];
 
@@ -1046,6 +1056,8 @@ app.delete('/api/library/:id', (req, res) => {
 });
 
 function readSessionCookies() {
+  if (!sessionCookiesEnabled) return null;
+
   try {
     const stat = fs.statSync(COOKIES_FILE);
     const content = fs.readFileSync(COOKIES_FILE, 'utf8');
@@ -1074,6 +1086,7 @@ app.get('/api/session/cookies', (req, res) => {
   const consentAccepted = (req.headers.cookie || '').split(';').some(cookie => cookie.trim() === 'mediafetch_cookies_accepted=1');
   const session = readSessionCookies();
   res.json({
+    enabled: sessionCookiesEnabled,
     hasCookies: Boolean(session),
     consentAccepted,
     ...(session || { cookieCount: 0, sizeBytes: 0, mode: 'none' }),

@@ -201,6 +201,10 @@
               <div class="error-text-content">
                 <strong>Error al obtener el medio</strong>
                 <p id="analyzeErrorMsg">Verifica que el enlace sea correcto y accesible.</p>
+                <p id="youtubeDownloadAlternatives" hidden>
+                  Si subiste este video, puedes descargar el MP4 desde <a href="https://studio.youtube.com/" target="_blank" rel="noopener noreferrer">YouTube Studio</a>.
+                  Si tienes un enlace directo al archivo, pégalo aquí para usar MediaFetch.
+                </p>
               </div>
             </div>
 
@@ -539,8 +543,8 @@
               <span class="card-subtitle">AUTENTICACIÓN Y SESIONES</span>
               <h2 class="card-title">Cookies de sesión (Netscape cookies.txt)</h2>
             </div>
-            <p class="settings-desc">
-              En una instalación privada, puedes cargar un archivo Netscape (<code>cookies.txt</code>) de una sesión autorizada. El servidor comparte este archivo entre los visitantes.
+            <p class="settings-desc" id="sessionCookiesDescription">
+              La carga de cookies de sesión se admite en instalaciones privadas. El servidor comparte el archivo entre los visitantes.
             </p>
 
             <div class="cookies-status-row">
@@ -551,10 +555,10 @@
               <button type="button" class="btn-sm-danger" id="clearCookiesBtn" style="display: none;">Eliminar cookies</button>
             </div>
 
-            <textarea id="cookiesTextInput" class="cookies-textarea" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com  TRUE  /  FALSE  2147483647  SID  ..."></textarea>
+            <textarea id="cookiesTextInput" class="cookies-textarea" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com  TRUE  /  FALSE  2147483647  SID  ..." disabled></textarea>
 
             <div class="cookies-actions-group">
-              <button type="button" class="btn-primary" id="saveCookiesBtn">
+              <button type="button" class="btn-primary" id="saveCookiesBtn" disabled>
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
                   <polyline points="17 21 17 13 7 13 7 21"></polyline>
@@ -563,7 +567,7 @@
                 <span>Guardar cookies de sesión</span>
               </button>
 
-              <button type="button" class="btn-secondary" id="uploadCookiesFileBtn">
+              <button type="button" class="btn-secondary" id="uploadCookiesFileBtn" disabled>
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                   <polyline points="17 8 12 3 7 8"></polyline>
@@ -571,7 +575,7 @@
                 </svg>
                 <span>Subir archivo cookies.txt</span>
               </button>
-              <input type="file" id="cookiesFileInput" accept=".txt,text/plain" style="display: none;">
+              <input type="file" id="cookiesFileInput" accept=".txt,text/plain" style="display: none;" disabled>
 
               <button type="button" class="btn-accept-cookies" id="acceptDefaultCookiesBtn">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
