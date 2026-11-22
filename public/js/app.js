@@ -240,11 +240,11 @@
     if (headerBtn) {
       headerBtn.classList.toggle('accepted', accepted);
       headerBtn.title = accepted
-        ? 'Cookies aceptadas y activas (clic para gestionar)'
-        : 'Aceptar cookies para habilitar descargas en todos los navegadores';
+        ? 'Preferencia de cookies guardada'
+        : 'Gestionar preferencias de cookies de MediaFetch';
     }
     if (headerText) {
-      headerText.textContent = accepted ? 'Cookies activas' : 'Aceptar cookies';
+      headerText.textContent = accepted ? 'Cookies aceptadas' : 'Aceptar cookies';
     }
   }
 
@@ -284,10 +284,8 @@
 
       if (res.ok) {
         if (showFeedback) {
-          showToast('success', '¡Cookies aceptadas! Descargas habilitadas en cualquier navegador.');
+          showToast('success', 'Preferencia de cookies de MediaFetch guardada.');
         }
-        fetchEngineStatus();
-        if (window.settingsModule) window.settingsModule.refreshStatus();
         return true;
       }
     } catch (err) {

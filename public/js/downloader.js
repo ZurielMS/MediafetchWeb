@@ -23,9 +23,6 @@
   const analyzeLoading = document.getElementById('analyzeLoading');
   const analyzeErrorCard = document.getElementById('analyzeErrorCard');
   const analyzeErrorMsg = document.getElementById('analyzeErrorMsg');
-  const analyzeErrorActions = document.getElementById('analyzeErrorActions');
-  const errorAcceptCookiesBtn = document.getElementById('errorAcceptCookiesBtn');
-  const errorGoSettingsBtn = document.getElementById('errorGoSettingsBtn');
 
   const mediaPreviewCard = document.getElementById('mediaPreviewCard');
   const previewThumbnail = document.getElementById('previewThumbnail');
@@ -133,27 +130,25 @@
         body: JSON.stringify({ url: targetUrl }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       analyzeLoading.style.display = 'none';
 
       if (!res.ok) {
-        const msg = data.error || 'No se pudo analizar el enlace.';
-        analyzeErrorMsg.textContent = msg;
-        if (analyzeErrorActions) {
-          const isCookieErr = /cookie|sesión|bloqueó|403|429|verificación/i.test(msg);
-          analyzeErrorActions.style.display = isCookieErr ? 'flex' : 'none';
-        }
+        const fallback = [502, 503, 504].includes(res.status)
+          ? 'MediaFetch no está disponible temporalmente. Inténtalo de nuevo en unos momentos.'
+          : 'No se pudo analizar el enlace.';
+        analyzeErrorMsg.textContent = data?.error || fallback;
         analyzeErrorCard.style.display = 'flex';
         return;
       }
 
+      if (!data) throw new Error('Respuesta de análisis inválida.');
       currentMediaInfo = data;
       renderPreview(data);
     } catch (err) {
       analyzeLoading.style.display = 'none';
       // El mismo mensaje aplica si MediaFetch corre en el equipo o en Render.
       analyzeErrorMsg.textContent = 'Error al comunicarse con el servidor de MediaFetch.';
-      if (analyzeErrorActions) analyzeErrorActions.style.display = 'none';
       analyzeErrorCard.style.display = 'flex';
     }
   }
@@ -481,19 +476,6 @@
     clearUrlBtn.addEventListener('click', clearInput);
     pasteBtn.addEventListener('click', pasteClipboard);
     analyzeBtn.addEventListener('click', () => analyzeUrl());
-
-    if (errorAcceptCookiesBtn) {
-      errorAcceptCookiesBtn.addEventListener('click', async () => {
-        await window.appModule.acceptCookies(true);
-        analyzeUrl();
-      });
-    }
-
-    if (errorGoSettingsBtn) {
-      errorGoSettingsBtn.addEventListener('click', () => {
-        window.appModule.switchTab('settings');
-      });
-    }
 
     // Format Chips
     document.querySelectorAll('.format-chip').forEach(btn => {

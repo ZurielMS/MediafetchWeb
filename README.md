@@ -112,4 +112,4 @@ Esta versión cambia el servicio de Render de Node nativo a **Docker**. La image
 2. Si el servicio se administra con un Blueprint, sincroniza el `render.yaml` actualizado. Si se administra desde el panel, ve a **Settings → Build → Source**, selecciona **Docker** como runtime y despliega el commit actualizado.
 3. Abre `/api/status` en el dominio publicado y verifica que `ytdlpVersion` muestre una versión y `ffmpegReady` sea `true`. Luego analiza un video público de YouTube y prueba una descarga con un archivo que tengas permiso de descargar.
 
-El análisis de YouTube pasó en el contenedor Docker de prueba. La comprobación desde la IP pública de Render se realiza después del despliegue. Si falla, busca `Falló el análisis con yt-dlp` en los logs del servicio para ver el error del extractor.
+El mismo video público se analizó correctamente en Docker local y recibió una verificación anti-bot desde Render. Si aparece ese aviso, abre el enlace directamente en YouTube. Aceptar las cookies de MediaFetch solo guarda una preferencia del navegador. Si el análisis falla, busca `Falló el análisis con yt-dlp` en los logs del servicio para ver el error original.

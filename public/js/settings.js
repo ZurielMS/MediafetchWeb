@@ -47,8 +47,8 @@
       if (data.hasCookies) {
         cookiesActiveDot.className = 'status-dot online';
         const modeLabel = data.mode === 'authenticated'
-          ? `Sesión autenticada (${data.cookieCount} cookies activas)`
-          : `Cookies esenciales aceptadas (${data.cookieCount} cookies activas)`;
+          ? `Archivo de sesión cargado (${data.cookieCount} cookies). La plataforma valida el acceso al analizar.`
+          : `Archivo de cookies cargado (${data.cookieCount} cookies).`;
         cookiesActiveText.textContent = modeLabel;
         clearCookiesBtn.style.display = 'inline-block';
       } else {
@@ -82,11 +82,6 @@
         window.appModule.showToast('error', data.error || 'Error al guardar cookies.');
         return;
       }
-
-      try {
-        localStorage.setItem('mf_cookies_accepted', 'true');
-        document.cookie = 'mediafetch_cookies_accepted=1; path=/; max-age=31536000; SameSite=Lax';
-      } catch (_) {}
 
       window.appModule.showToast('success', `¡${data.cookieCount} cookies guardadas con éxito!`);
       cookiesTextInput.value = '';

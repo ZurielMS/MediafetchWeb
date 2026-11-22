@@ -233,7 +233,8 @@ async function run() {
     assert('consentAccepted' in data, 'Missing consentAccepted property');
   });
 
-  await itAsync('POST /api/session/accept-cookies sets cross-browser cookie and initializes session', async () => {
+  await itAsync('POST /api/session/accept-cookies remembers consent without altering session cookies', async () => {
+    const before = await fetchHttp('http://127.0.0.1:3000/api/session/cookies');
     const res = await fetchHttp('http://127.0.0.1:3000/api/session/accept-cookies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -244,8 +245,6 @@ async function run() {
     const data = JSON.parse(res.body);
     assert.strictEqual(data.success, true);
     assert.strictEqual(data.consentAccepted, true);
-    assert.strictEqual(data.hasCookies, true);
-    assert(data.cookieCount >= 1, 'Expected at least 1 active cookie');
 
     // Verify GET /api/session/cookies reflects consentAccepted=true when browser sends cookie
     const checkRes = await fetchHttp('http://127.0.0.1:3000/api/session/cookies', {
@@ -254,7 +253,7 @@ async function run() {
     assert.strictEqual(checkRes.statusCode, 200);
     const checkData = JSON.parse(checkRes.body);
     assert.strictEqual(checkData.consentAccepted, true);
-    assert.strictEqual(checkData.hasCookies, true);
+    assert.deepStrictEqual(checkData, { ...JSON.parse(before.body), consentAccepted: true });
   });
 
   await itAsync('GET /api/files/:filename?download=1 serves cross-browser RFC 5987 download headers', async () => {

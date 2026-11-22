@@ -2493,18 +2493,6 @@ html, body {
   transform: scale(0.97);
 }
 
-.error-inline-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.btn-sm-cookie {
-  padding: 7px 12px;
-  font-size: 12px;
-}
-
 .cookies-actions-group {
   display: flex;
   flex-wrap: wrap;

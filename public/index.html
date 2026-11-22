@@ -82,7 +82,7 @@
       <!-- Header Right Actions -->
       <div class="header-actions">
         <!-- Quick Cookie Consent / Status Button -->
-        <button type="button" class="cookie-header-btn" id="headerCookiesBtn" title="Aceptar o gestionar cookies de sesión" aria-label="Cookies de sesión">
+        <button type="button" class="cookie-header-btn" id="headerCookiesBtn" title="Gestionar preferencias de cookies" aria-label="Preferencias de cookies">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"></path>
             <path d="M8.5 8.5v.01"></path>
@@ -201,10 +201,6 @@
               <div class="error-text-content">
                 <strong>Error al obtener el medio</strong>
                 <p id="analyzeErrorMsg">Verifica que el enlace sea correcto y accesible.</p>
-                <div class="error-inline-actions" id="analyzeErrorActions" style="display: none;">
-                  <button type="button" class="btn-accept-cookies btn-sm-cookie" id="errorAcceptCookiesBtn">Aceptar cookies y reintentar</button>
-                  <button type="button" class="btn-cookie-config btn-sm-cookie" id="errorGoSettingsBtn">Ir a Ajustes</button>
-                </div>
               </div>
             </div>
 
@@ -533,7 +529,7 @@
               <h2 class="card-title">Cookies de sesión (Netscape cookies.txt)</h2>
             </div>
             <p class="settings-desc">
-              Si deseas descargar videos privados, cursos o contenido protegido de YouTube, Facebook o Instagram, pega aquí el contenido de tus cookies en formato Netscape (`cookies.txt`). MediaFetch las usará automáticamente.
+              En una instalación privada, puedes cargar un archivo Netscape (<code>cookies.txt</code>) de una sesión autorizada. El servidor comparte este archivo entre los visitantes.
             </p>
 
             <div class="cookies-status-row">
@@ -706,8 +702,8 @@
     </div>
   </div>
 
-  <!-- Cookie Consent Banner (Universal Cross-Browser Downloads) -->
-  <div class="cookie-consent-banner" id="cookieConsentBanner" role="dialog" aria-live="polite" aria-label="Aceptar cookies para habilitar descargas" style="display: none;">
+  <!-- Preferencias de cookies de MediaFetch -->
+  <div class="cookie-consent-banner" id="cookieConsentBanner" role="dialog" aria-live="polite" aria-label="Preferencias de cookies de MediaFetch" style="display: none;">
     <div class="cookie-banner-inner">
       <div class="cookie-banner-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -720,8 +716,8 @@
         </svg>
       </div>
       <div class="cookie-banner-text">
-        <strong>Acepta las cookies para descargar en cualquier navegador</strong>
-        <p>Usamos cookies de sesión esenciales para garantizar descargas directas MP4 y MP3 en Chrome, Brave, Firefox, Edge y Safari.</p>
+        <strong>Cookies de MediaFetch</strong>
+        <p>Esta preferencia se guarda en tu navegador para recordar tu elección. Las plataformas gestionan sus propios inicios de sesión.</p>
       </div>
       <div class="cookie-banner-actions">
         <button type="button" class="btn-cookie-config" id="configCookiesBtn">Configurar</button>

@@ -351,7 +351,7 @@ app.get('/api/status', (req, res) => {
   }
 
   const library = readLibrary();
-  const hasCookies = fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0;
+  const hasCookies = Boolean(readSessionCookies());
 
   res.json({
     initialized: true,
@@ -444,7 +444,7 @@ app.post('/api/analyze', async (req, res) => {
   const platform = detectPlatform(rawUrl);
   const cleanUrl = normalizeMediaUrl(rawUrl);
 
-  const hasCookies = useCookies && fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0;
+  const hasCookies = useCookies && readSessionCookies();
 
   // Deja que yt-dlp elija los clientes de YouTube compatibles con la solicitud.
   const args = ['--dump-single-json', '--no-playlist', '--socket-timeout', '12', ...ytdlpJsRuntimeArgs];
@@ -467,15 +467,24 @@ app.post('/api/analyze', async (req, res) => {
     // Muestra la causa reconocida de la falla y deja el detalle técnico en el registro.
     let error = 'No se pudo obtener la información del medio. Si el problema persiste, avisa al administrador.';
     let status = 422;
+    let code = 'EXTRACTOR_FAILED';
 
     if (result.timedOut) {
       status = 504;
+      code = 'EXTRACTOR_TIMEOUT';
       error = 'El análisis del enlace superó el tiempo de espera. Inténtalo de nuevo más tarde.';
+    } else if ((platform.id === 'youtube' || platform.id === 'ytmusic') &&
+               /sign in to confirm you(?:['’]re| are) not a bot/i.test(extractorError)) {
+      code = 'YOUTUBE_BOT_CHECK';
+      error = 'YouTube solicitó una verificación anti-bot a este servidor. Abre el video en YouTube para continuar allí.';
     } else if (/sign in|logged.in|login required/i.test(extractorError)) {
+      code = 'SIGN_IN_REQUIRED';
       error = 'La plataforma pidió iniciar sesión o verificar el acceso a este enlace.';
     } else if (/HTTP Error 429|429: Too Many Requests/i.test(extractorError)) {
+      code = 'UPSTREAM_RATE_LIMIT';
       error = 'La plataforma limitó las solicitudes. Inténtalo de nuevo más tarde.';
     } else if (/HTTP Error 403|403: Forbidden/i.test(extractorError)) {
+      code = 'UPSTREAM_ACCESS_DENIED';
       error = 'La plataforma rechazó el acceso al enlace desde el servidor.';
     }
 
@@ -483,7 +492,7 @@ app.post('/api/analyze', async (req, res) => {
       stderr: result.stderr.trim(),
       timedOut: result.timedOut,
     });
-    return res.status(status).json({ error });
+    return res.status(status).json({ code, error });
   }
 
   try {
@@ -606,7 +615,7 @@ app.post('/api/download', (req, res) => {
     args.push('--ffmpeg-location', ffmpegPath);
   }
 
-  if (useCookies && fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0) {
+  if (useCookies && readSessionCookies()) {
     args.push('--cookies', COOKIES_FILE);
   }
 
@@ -1036,76 +1045,45 @@ app.delete('/api/library/:id', (req, res) => {
   res.json({ success: true, removed });
 });
 
-// Helper: Default baseline YouTube consent cookies in Netscape format (bypasses consent walls)
-const DEFAULT_CONSENT_COOKIES = [
-  '# Netscape HTTP Cookie File',
-  '# MediaFetch Web — Consentimiento de Cookies Esenciales',
-  '.youtube.com\tTRUE\t/\tTRUE\t2147483647\tCONSENT\tYES+cb',
-  '.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSOCS\tCAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiADGgYIgJnPpwY',
-  '.youtube.com\tTRUE\t/\tTRUE\t2147483647\tPREF\ttz=America.Mexico_City&hl=es',
-  ''
-].join('\n');
-
-// 10. Session Cookies Management
-app.get('/api/session/cookies', (req, res) => {
-  const cookieHeader = req.headers.cookie || '';
-  const consentAccepted = cookieHeader.includes('mediafetch_cookies_accepted=1');
-
-  if (!fs.existsSync(COOKIES_FILE)) {
-    return res.json({ hasCookies: false, consentAccepted, cookieCount: 0, sizeBytes: 0, mode: 'none' });
-  }
-  const stat = fs.statSync(COOKIES_FILE);
-  if (stat.size === 0) {
-    return res.json({ hasCookies: false, consentAccepted, cookieCount: 0, sizeBytes: 0, mode: 'none' });
-  }
-
+function readSessionCookies() {
   try {
+    const stat = fs.statSync(COOKIES_FILE);
     const content = fs.readFileSync(COOKIES_FILE, 'utf8');
-    const lines = content.split('\n').filter(line => line.trim() && !line.startsWith('#'));
-    const isAuthenticated = lines.some(line => /\t(SID|HSID|SSID|APISID|SAPISID|LOGIN_INFO)\t/.test(line));
-    res.json({
-      hasCookies: true,
-      consentAccepted,
+    const lines = content.split(/\r?\n/).filter(line => line.trim() && (!line.startsWith('#') || line.startsWith('#HttpOnly_')));
+    if (lines.length === 0) return null;
+
+    // Las versiones antiguas escribían este archivo al aceptar el aviso del sitio.
+    const legacyConsent = content.includes('# MediaFetch Web — Consentimiento de Cookies Esenciales') &&
+      lines.length === 3 && lines.every(line => /^\.youtube\.com\t.*\t(?:CONSENT|SOCS|PREF)\t[^\t]*$/.test(line));
+    if (legacyConsent) return null;
+
+    const hasLoginCookies = lines.some(line => /\t(SID|HSID|SSID|APISID|SAPISID|LOGIN_INFO)\t/.test(line));
+    return {
       cookieCount: lines.length,
       sizeBytes: stat.size,
       updatedAt: stat.mtimeMs,
-      mode: isAuthenticated ? 'authenticated' : 'consent',
-    });
-  } catch (err) {
-    res.json({ hasCookies: false, consentAccepted, cookieCount: 0, sizeBytes: 0, mode: 'none' });
+      mode: hasLoginCookies ? 'authenticated' : 'consent',
+    };
+  } catch (_) {
+    return null;
   }
+}
+
+// 10. Session Cookies Management
+app.get('/api/session/cookies', (req, res) => {
+  const consentAccepted = (req.headers.cookie || '').split(';').some(cookie => cookie.trim() === 'mediafetch_cookies_accepted=1');
+  const session = readSessionCookies();
+  res.json({
+    hasCookies: Boolean(session),
+    consentAccepted,
+    ...(session || { cookieCount: 0, sizeBytes: 0, mode: 'none' }),
+  });
 });
 
-// 10b. Quick Accept Cookies Endpoint (Sets cross-browser consent cookie + initializes baseline session jar)
+// El consentimiento de MediaFetch no crea ni modifica el archivo de sesión del extractor.
 app.post('/api/session/accept-cookies', (req, res) => {
-  try {
-    // Set standard first-party cookie compatible with Chrome, Brave, Firefox, Edge, and Safari
-    res.setHeader('Set-Cookie', 'mediafetch_cookies_accepted=1; Path=/; Max-Age=31536000; SameSite=Lax');
-
-    // Only write baseline consent cookies if no authenticated cookies file already exists
-    let hasExisting = fs.existsSync(COOKIES_FILE) && fs.statSync(COOKIES_FILE).size > 0;
-    if (!hasExisting) {
-      fs.writeFileSync(COOKIES_FILE, DEFAULT_CONSENT_COOKIES, 'utf8');
-    }
-
-    const content = fs.readFileSync(COOKIES_FILE, 'utf8');
-    const lines = content.split('\n').filter(line => line.trim() && !line.startsWith('#'));
-    const isAuthenticated = lines.some(line => /\t(SID|HSID|SSID|APISID|SAPISID|LOGIN_INFO)\t/.test(line));
-
-    logDebug('info', `Consentimiento de cookies aceptado por el navegador (${lines.length} cookies activas, modo: ${isAuthenticated ? 'authenticated' : 'consent'}).`);
-
-    res.json({
-      success: true,
-      consentAccepted: true,
-      hasCookies: true,
-      cookieCount: lines.length,
-      mode: isAuthenticated ? 'authenticated' : 'consent',
-      message: 'Cookies aceptadas y sesión habilitada para todos los navegadores.',
-    });
-  } catch (err) {
-    logDebug('error', 'Error al aceptar cookies:', err.message);
-    res.status(500).json({ error: `Error al activar las cookies: ${err.message}` });
-  }
+  res.setHeader('Set-Cookie', 'mediafetch_cookies_accepted=1; Path=/; Max-Age=31536000; SameSite=Lax');
+  res.json({ success: true, consentAccepted: true });
 });
 
 app.post('/api/session/cookies', (req, res) => {
